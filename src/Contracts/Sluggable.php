@@ -1,0 +1,102 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Polyslug\Contracts;
+
+use Illuminate\Support\HtmlString;
+
+/**
+ * Implemented by Eloquent models that carry Polyslug slugs. Pair it with the
+ * HasPolyslug trait, which provides these methods, and the #[Polyslug] attribute.
+ */
+interface Sluggable
+{
+    /**
+     * Whether this model (optionally for a locale) should be advertised in hreflang sets
+     * and sitemaps — override to keep unpublished models/locales out. The resolution-time
+     * gate is polyslugResolveQuery() (provided by the HasPolyslug trait): override it to
+     * constrain which rows a slug may resolve to (the required cross-tenant isolation contract).
+     */
+    public function polyslugIsRoutable(?string $locale = null): bool;
+
+    /** A model this one has been superseded by — its URL 301s to the successor's canonical (null = not superseded). */
+    public function polyslugSupersededBy(): ?self;
+
+    /** Whether this model is permanently gone — its URL returns the configured gone status (410 by default). */
+    public function polyslugIsGone(): bool;
+
+    /** The current slug for the given (or active) locale, or null if none exists yet. */
+    public function currentSlug(?string $locale = null): ?string;
+
+    /** The route key "{slug}_{encodedId}" for the given (or active) locale. */
+    public function polyslugRouteKey(?string $locale = null): string;
+
+    /** The route key for an EXPLICIT locale — never reads the ambient app locale (for sitemaps, backfill, CLI, and locale-aware routing). */
+    public function polyslugRouteKeyForLocale(string $locale): string;
+
+    /** The parent in a nested hierarchy — override to compose ancestor slugs into the route-key path. null (default) = not nested. Pair with a scope on the parent key for per-parent slug uniqueness. */
+    public function polyslugParent(): ?self;
+
+    /** The slash-joined slug path (ancestors + own) for the given (or active) locale; just the own slug when not nested. maxDepth bounds recursion so a parent cycle can't loop forever. */
+    public function polyslugPath(?string $locale = null, int $maxDepth = 20): string;
+
+    /** A stable short-link token for this model + locale; route Polyslug\Http\Controllers\ShortLinkController at /go/{token} to 301 it to the current canonical URL (survives renames). */
+    public function shortLink(?string $locale = null): string;
+
+    /** Resolve this model type by primary key THROUGH the resolution gate (polyslugResolveQuery), so tenant/visibility scoping applies on every path — including /go. */
+    public function polyslugResolveByKey(mixed $key): ?self;
+
+    /** Generate or refresh the current slug from the model's source (idempotent). */
+    public function polyslugSync(?string $locale = null): void;
+
+    /** Apply the delete policy (cascade slug rows on hard/force delete; release on soft-delete if configured). */
+    public function polyslugOnDeleted(): void;
+
+    /** Set the current slug for a locale from the given source, or the model's own source. */
+    public function setSlug(string $locale, ?string $source = null): void;
+
+    /**
+     * The locales that currently have a slug.
+     *
+     * @return list<string>
+     */
+    public function slugLocales(): array;
+
+    /**
+     * Superseded slugs for a locale, newest first.
+     *
+     * @return list<string>
+     */
+    public function slugHistory(?string $locale = null): array;
+
+    /**
+     * An absolute URL per locale that has a current slug, built by the resolver.
+     *
+     * @param  callable(string $locale, string $routeKey): string  $urlUsing
+     * @return array<string, string>
+     */
+    public function polyslugUrls(callable $urlUsing): array;
+
+    /**
+     * The reciprocal hreflang set (self-referential, plus x-default).
+     *
+     * @param  callable(string $locale, string $routeKey): string  $urlUsing
+     * @return array<string, string>
+     */
+    public function hreflangLinks(callable $urlUsing, ?string $xDefault = null): array;
+
+    /**
+     * Rendered <link rel="alternate" hreflang="..."> tags for this model.
+     *
+     * @param  callable(string $locale, string $routeKey): string  $urlUsing
+     */
+    public function hreflangTags(callable $urlUsing, ?string $xDefault = null): HtmlString;
+
+    /**
+     * Rendered <xhtml:link rel="alternate" hreflang="..."> alternates for a sitemap entry.
+     *
+     * @param  callable(string $locale, string $routeKey): string  $urlUsing
+     */
+    public function sitemapAlternateTags(callable $urlUsing, ?string $xDefault = null): HtmlString;
+}
