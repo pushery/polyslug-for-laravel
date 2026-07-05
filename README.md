@@ -125,7 +125,8 @@ Point a route at it and add the canonical-redirect middleware:
 use Illuminate\Support\Facades\Route;
 
 Route::get('/pages/{page}', [PageController::class, 'show'])
-    ->middleware('polyslug.canonical');
+    ->middleware('polyslug.canonical')
+    ->name('pages.show');
 ```
 
 That is the whole setup. Now:
@@ -310,7 +311,8 @@ the canonical route key automatically:
 
 ```php
 Route::get('/pages/{page}', [PageController::class, 'show'])
-    ->middleware('polyslug.canonical');
+    ->middleware('polyslug.canonical')
+    ->name('pages.show');
 
 route('pages.show', $page); // → /pages/my-title_aB3xK
 ```
@@ -319,7 +321,7 @@ Or let the `Route::polyslug()` macro wire `SubstituteBindings` and `polyslug.can
 in the correct order for you (a mis-ordered stack silently disables self-heal):
 
 ```php
-Route::polyslug('/pages/{page}', [PageController::class, 'show']);
+Route::polyslug('/pages/{page}', [PageController::class, 'show'])->name('pages.show');
 ```
 
 On a safe (`GET`/`HEAD`) request whose slug is stale, `polyslug.canonical` issues a
