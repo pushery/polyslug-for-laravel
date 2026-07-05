@@ -10,8 +10,8 @@ use Throwable;
 /**
  * Thrown when a slug could not be written after repeated write conflicts — a
  * concurrent writer kept claiming the generated slug (or the one-current-row) up to
- * the configured polyslug.write.max_attempts. The underlying database error is
- * available via getPrevious().
+ * the configured polyslug.write.max_attempts. The write is rolled back, so the model
+ * keeps whatever slug it had before.
  */
 final class CouldNotWriteSlug extends RuntimeException
 {

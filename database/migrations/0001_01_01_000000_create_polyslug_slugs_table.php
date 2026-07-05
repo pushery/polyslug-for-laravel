@@ -27,25 +27,43 @@ return new class extends Migration
             $table->index(['sluggable_type', 'sluggable_id', 'locale'], 'polyslug_slugs_sluggable_index');
         });
 
-        // Exactly one current, non-deleted slug per (type, locale, scope, case-insensitive
-        // slug). A functional partial unique index expresses this without a generated
-        // column — PostgreSQL 18 makes generated columns VIRTUAL and therefore
-        // non-indexable, and slug transliteration is not an immutable built-in anyway.
-        // The identical statement runs on PostgreSQL and SQLite (>= 3.9).
-        DB::statement(
-            'CREATE UNIQUE INDEX polyslug_slugs_current_unique '
-            .'ON polyslug_slugs (sluggable_type, locale, scope, lower(slug)) '
-            .'WHERE is_current AND deleted_at IS NULL'
-        );
-
-        // Exactly ONE current, non-deleted slug per (type, id, locale, scope). Without
-        // this a concurrent rename could leave two is_current rows, making the "current"
-        // slug — and therefore the canonical URL — nondeterministic (a flapping 301).
-        DB::statement(
-            'CREATE UNIQUE INDEX polyslug_slugs_one_current '
-            .'ON polyslug_slugs (sluggable_type, sluggable_id, locale, scope) '
-            .'WHERE is_current AND deleted_at IS NULL'
-        );
+        // Two partial unique indexes guarantee: (1) exactly one current, non-deleted slug
+        // per (type, locale, scope, case-insensitive slug); (2) exactly one current row per
+        // (type, id, locale, scope) — without which a concurrent rename could leave two
+        // is_current rows and flap the canonical URL. The mechanism differs per engine.
+        if (Schema::getConnection()->getDriverName() === 'mysql') {
+            // MySQL 8 has no partial or functional-partial indexes, so emulate them with
+            // VIRTUAL generated key columns that are NULL for non-current / soft-deleted rows
+            // (NULLs never collide in a UNIQUE index), SHA2-hashed to stay inside the index
+            // key-length limit. LOWER(slug) mirrors the lower(slug) of the PG/SQLite indexes.
+            DB::statement(
+                'ALTER TABLE polyslug_slugs ADD COLUMN polyslug_current_key CHAR(64) '
+                .'GENERATED ALWAYS AS (CASE WHEN is_current = 1 AND deleted_at IS NULL '
+                .'THEN SHA2(CONCAT_WS(CHAR(30), sluggable_type, locale, scope, LOWER(slug)), 256) END) VIRTUAL'
+            );
+            DB::statement(
+                'ALTER TABLE polyslug_slugs ADD COLUMN polyslug_one_current_key CHAR(64) '
+                .'GENERATED ALWAYS AS (CASE WHEN is_current = 1 AND deleted_at IS NULL '
+                .'THEN SHA2(CONCAT_WS(CHAR(30), sluggable_type, sluggable_id, locale, scope), 256) END) VIRTUAL'
+            );
+            DB::statement('CREATE UNIQUE INDEX polyslug_slugs_current_unique ON polyslug_slugs (polyslug_current_key)');
+            DB::statement('CREATE UNIQUE INDEX polyslug_slugs_one_current ON polyslug_slugs (polyslug_one_current_key)');
+        } else {
+            // PostgreSQL + SQLite (>= 3.9): a functional partial unique index. No generated
+            // column — PostgreSQL 18 makes generated columns VIRTUAL and therefore
+            // non-indexable, and slug transliteration is not an immutable built-in anyway.
+            // The identical statement runs on both engines.
+            DB::statement(
+                'CREATE UNIQUE INDEX polyslug_slugs_current_unique '
+                .'ON polyslug_slugs (sluggable_type, locale, scope, lower(slug)) '
+                .'WHERE is_current AND deleted_at IS NULL'
+            );
+            DB::statement(
+                'CREATE UNIQUE INDEX polyslug_slugs_one_current '
+                .'ON polyslug_slugs (sluggable_type, sluggable_id, locale, scope) '
+                .'WHERE is_current AND deleted_at IS NULL'
+            );
+        }
 
         // Backing store for the optional RandomTokenEncoder: an unguessable, leak-free
         // token per key. Empty (and inert) unless a model opts into that encoder.

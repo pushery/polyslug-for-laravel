@@ -7,7 +7,6 @@ namespace Polyslug\Concerns;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
@@ -261,7 +260,6 @@ trait HasPolyslug
     {
         $scope = $this->polyslugScope($config);
         $attempts = $this->polyslugMaxWriteAttempts();
-        $failure = null;
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             $current = $this->currentSlugRow($locale);
@@ -281,34 +279,43 @@ trait HasPolyslug
                 return;
             }
 
-            try {
-                // Demote-old + insert-new atomically so a failure never leaves the model
-                // with zero (or two) current slugs.
-                DB::transaction(function () use ($current, $locale, $scope, $desired): void {
-                    $current?->update(['is_current' => false]);
+            // Demote-old + insert-new in one transaction that always COMMITS. insertOrIgnore
+            // skips (returns 0), without throwing, a slug a concurrent writer claimed between
+            // our generate and insert; on that miss we restore the demoted row inside the same
+            // transaction, so the model always keeps exactly one current slug. Because the write
+            // never rolls back a nested savepoint, it stays correct inside an outer transaction
+            // on every engine — MySQL's savepoint rollback is unreliable once DDL has implicitly
+            // committed the outer transaction. Exhausting the attempts throws outside any
+            // transaction, leaving the original current slug untouched.
+            $inserted = DB::transaction(function () use ($current, $locale, $scope, $desired): int {
+                $current?->update(['is_current' => false]);
 
-                    $this->slugs()->create([
-                        'locale' => $locale,
-                        'scope' => $scope,
-                        'slug' => $desired,
-                        'is_current' => true,
-                    ]);
-                });
-            } catch (QueryException $exception) {
-                // A concurrent writer claimed this slug (or the one-current-row) between
-                // our generate and insert, or the write deadlocked. Regenerate against the
-                // now-committed state and retry, up to the configured attempts.
-                $failure = $exception;
+                $inserted = PolyslugSlug::query()->insertOrIgnore([
+                    'sluggable_type' => $this->getMorphClass(),
+                    'sluggable_id' => $this->polyslugKeyString(),
+                    'locale' => $locale,
+                    'scope' => $scope,
+                    'slug' => $desired,
+                    'is_current' => true,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-                continue;
+                if ($inserted === 0) {
+                    $current?->update(['is_current' => true]);
+                }
+
+                return $inserted;
+            });
+
+            if ($inserted > 0) {
+                event(new SlugChanged($this, $locale, $desired, $current?->slug));
+
+                return;
             }
-
-            event(new SlugChanged($this, $locale, $desired, $current?->slug));
-
-            return;
         }
 
-        throw new CouldNotWriteSlug($this->getMorphClass(), $source, $failure);
+        throw new CouldNotWriteSlug($this->getMorphClass(), $source);
     }
 
     private function polyslugMaxWriteAttempts(): int
