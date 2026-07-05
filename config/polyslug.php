@@ -152,7 +152,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | The sluggable models `polyslug:sitemap` includes. Each must be an Eloquent
-    | model implementing Sluggable. Bind a Polyslug\Contracts\SitemapUrlResolver in
+    | model implementing Sluggable. Bind a Polyslug\Contracts\PolyslugUrlResolver in
     | the container to tell the command how to build an absolute URL per model+locale.
     |
     */
