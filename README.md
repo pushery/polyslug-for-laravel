@@ -52,7 +52,7 @@ canonical one.
 - 🗂️ **History, events & immutability.** Superseded slugs are kept so old URLs keep
   resolving; a `SlugChanged` event fires on every change; slugs can be frozen.
 - ✅ **Serious about correctness.** PHPStan at `max`, 100% line + type coverage, and a
-  mutation-tested suite that runs on SQLite **and** PostgreSQL.
+  mutation-tested suite that runs on SQLite, PostgreSQL, **and** MySQL 8.4.
 
 ## Table of contents
 
@@ -83,8 +83,10 @@ canonical one.
 
 - PHP 8.4+
 - Laravel 13+
-- Any database Laravel supports (the uniqueness index ships for PostgreSQL and SQLite;
-  MySQL/MariaDB work too)
+- PostgreSQL, MySQL 8.4+, or SQLite. The uniqueness guarantees are enforced natively on
+  each — a functional partial unique index on PostgreSQL/SQLite, equivalent generated key
+  columns on MySQL — and the full suite runs against all three. So Polyslug works on
+  Laravel Cloud (serverless Postgres + MySQL 8.4 LTS) with no extra configuration.
 
 ## Installation
 
@@ -204,7 +206,7 @@ All attribute options:
 | `onDelete` | `'keep'` | On soft-delete, `'keep'` reserves the slug; `'release'` frees it for reuse. A hard/force delete always cascades the slug rows. |
 | `emptyFallback` | `'id-only'` | When the source has no sluggable characters (a CJK/emoji-only title), `'id-only'` stores an empty slug so the URL is just `_{id}` and the save never fails; `'throw'` raises `CouldNotGenerateSlug`. |
 | `encoderOptions` | `[]` | Per-model `SqidsEncoder` options (`alphabet`, `min_length`) — a dedicated token space for this model. Ignored unless the effective encoder is `SqidsEncoder`. |
-| `unicode` | `'ascii'` | `'native'` keeps Unicode letters/numbers (Chinese, Cyrillic, Greek, accented Latin) instead of ASCII-transliterating them away — for non-Latin markets. Slugs are lower-cased at generation so the case-insensitive unique index behaves identically on PostgreSQL and SQLite. |
+| `unicode` | `'ascii'` | `'native'` keeps Unicode letters/numbers (Chinese, Cyrillic, Greek, accented Latin) instead of ASCII-transliterating them away — for non-Latin markets. Slugs are lower-cased at generation so the case-insensitive unique index behaves identically on PostgreSQL, SQLite, and MySQL. |
 
 App-wide reserved slugs (merged with each model's `reserved`) live in
 `polyslug.reserved.global` — use it so generated slugs never shadow sensitive words like
