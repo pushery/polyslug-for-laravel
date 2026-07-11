@@ -4,6 +4,11 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-11
+
+### Documentation
+- The README "Recipes" section is now a complete cookbook covering all ten app personas — added Social/UGC (shared slugs via `unique: false`), Marketplace (per-seller scope + a resolution gate), Headless CMS (the polymorphic type registry and one catch-all route), Government/enterprise (immutable slugs, 410 Gone, and supersede redirects), Events/ticketing (QR short links that survive renames), and Real-estate/geo (nested location paths). Every recipe was verified against the source.
+
 ## [0.2.0] - 2026-07-11
 
 ### Added
