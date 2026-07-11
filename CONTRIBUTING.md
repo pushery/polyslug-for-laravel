@@ -35,6 +35,16 @@ Beyond the static and coverage gates above, the suite also includes a real-brows
 end-to-end pass (`composer test:browser`, after `npx playwright install chromium`) and
 mutation testing (`composer mutate`, minimum 85%). Run both before opening a pull request.
 
+**Cross-engine parity.** The fast suites run on in-memory SQLite; `composer
+test:database` (or `just databases`) re-proves the one-current-slug and
+case-insensitive-slug guarantees against a real PostgreSQL and MySQL 8.4 server —
+the databases Laravel Cloud runs (serverless Postgres / Neon + MySQL 8.4 LTS),
+where the guarantee is enforced by two different mechanisms (a functional partial
+index vs. virtual generated key columns). Each suite **skips** when its server is
+unreachable; export `REQUIRE_DB_TESTS=1` to make a missing engine a hard failure.
+Point them at your servers with `PG_TEST_*` / `MYSQL_TEST_*` — for Herd's MySQL 8.4
+set `MYSQL_TEST_PORT=3308`. Create a `polyslug_test` database on each server first.
+
 ## Pull request expectations
 
 - Keep `composer qa` green.
