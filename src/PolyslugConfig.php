@@ -7,6 +7,7 @@ namespace Polyslug;
 use Illuminate\Support\Arr;
 use Polyslug\Attributes\Polyslug as PolyslugAttribute;
 use Polyslug\Enums\TransliterationProfile;
+use Polyslug\Exceptions\MisconfiguredPolyslug;
 
 /**
  * The resolved slug configuration for a model, normalized from the #[Polyslug]
@@ -35,7 +36,14 @@ final readonly class PolyslugConfig
         public array $encoderOptions = [],
         public string $unicode = 'ascii',
         public bool $idLess = false,
-    ) {}
+    ) {
+        // An idLess URL is the slug alone, so an idLess model resolves BY its slug and the
+        // slug must stay unique. `unique: false` (records may share a slug) is therefore only
+        // valid for a non-idLess model, whose encoded id disambiguates.
+        if ($this->idLess && ! $this->unique) {
+            throw MisconfiguredPolyslug::idLessRequiresUnique();
+        }
+    }
 
     public static function fromAttribute(PolyslugAttribute $attribute): self
     {

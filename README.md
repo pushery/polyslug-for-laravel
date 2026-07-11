@@ -199,7 +199,7 @@ All attribute options:
 | `separator` | `'-'` | Word separator within the slug. |
 | `transliterate` | `Simple` | `TransliterationProfile::Simple` (ü→u) or `Din` (ü→ue). |
 | `maxLength` | `null` | Trim the slug to at most this many characters (never mid-separator). |
-| `unique` | `true` | Append `-2`, `-3`, … on a collision. Set to `false` to keep the slug as-is (no suffix) — it must then be collision-free within its `(type, locale, scope)`, or generation throws `Polyslug\Exceptions\SlugCollision`. |
+| `unique` | `true` | Append `-2`, `-3`, … on a collision. Set to `false` to let records **share** a slug (no suffix): those rows are excluded from the uniqueness index, and a non-idLess URL still resolves by its encoded id. Combining `false` with `idLess` is rejected (`MisconfiguredPolyslug`) — an idLess model resolves *by* its slug, so it must stay unique. |
 | `scope` | `null` | Column(s) that scope uniqueness (e.g. `tenant_id`). |
 | `reserved` | `[]` | Slugs that may never be assigned (matched case-insensitively). |
 | `immutable` | `false` | Freeze the slug after first generation (see [below](#history-events--immutability)). |

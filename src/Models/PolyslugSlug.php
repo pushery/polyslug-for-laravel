@@ -22,6 +22,7 @@ use Override;
  * @property string $scope
  * @property string $slug
  * @property bool $is_current
+ * @property bool $enforce_unique
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
@@ -41,6 +42,7 @@ final class PolyslugSlug extends Model
         'scope',
         'slug',
         'is_current',
+        'enforce_unique',
     ];
 
     /**
@@ -59,6 +61,7 @@ final class PolyslugSlug extends Model
     {
         return [
             'is_current' => 'boolean',
+            'enforce_unique' => 'boolean',
         ];
     }
 }
