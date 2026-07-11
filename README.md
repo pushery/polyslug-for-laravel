@@ -7,7 +7,7 @@
 # Polyslug
 
 [![Latest Version](https://img.shields.io/packagist/v/pushery/polyslug-for-laravel.svg)](https://packagist.org/packages/pushery/polyslug-for-laravel)
-[![PHP Version](https://img.shields.io/packagist/php-v/pushery/polyslug-for-laravel.svg)](https://packagist.org/packages/pushery/polyslug-for-laravel)
+[![PHP Version](https://img.shields.io/packagist/dependency-v/pushery/polyslug-for-laravel/php.svg)](https://packagist.org/packages/pushery/polyslug-for-laravel)
 [![PHPStan](https://img.shields.io/badge/PHPStan-max-blue.svg)](https://phpstan.org)
 [![Code Style](https://img.shields.io/badge/code%20style-pint-orange.svg)](https://laravel.com/docs/pint)
 [![License](https://img.shields.io/packagist/l/pushery/polyslug-for-laravel.svg)](LICENSE)
