@@ -199,7 +199,7 @@ All attribute options:
 | `separator` | `'-'` | Word separator within the slug. |
 | `transliterate` | `Simple` | `TransliterationProfile::Simple` (ü→u) or `Din` (ü→ue). |
 | `maxLength` | `null` | Trim the slug to at most this many characters (never mid-separator). |
-| `unique` | `true` | Append `-2`, `-3`, … on a collision. |
+| `unique` | `true` | Append `-2`, `-3`, … on a collision. Set to `false` to keep the slug as-is (no suffix) — it must then be collision-free within its `(type, locale, scope)`, or generation throws `Polyslug\Exceptions\SlugCollision`. |
 | `scope` | `null` | Column(s) that scope uniqueness (e.g. `tenant_id`). |
 | `reserved` | `[]` | Slugs that may never be assigned (matched case-insensitively). |
 | `immutable` | `false` | Freeze the slug after first generation (see [below](#history-events--immutability)). |

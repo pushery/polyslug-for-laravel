@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Override;
 use Polyslug\Contracts\SlugGenerator;
 use Polyslug\Exceptions\CouldNotGenerateSlug;
+use Polyslug\Exceptions\SlugCollision;
 use Polyslug\Models\PolyslugSlug;
 use Polyslug\PolyslugConfig;
 use Polyslug\Support\SlugRequest;
@@ -21,6 +22,16 @@ final class DefaultSlugGenerator implements SlugGenerator
         $base = $this->slugify($request->source, $config);
 
         if (! $config->unique) {
+            // `unique: false` opts out of the disambiguating suffix, so the slug must be
+            // collision-free within its scope. If another model already holds it, fail fast
+            // with a clear, non-retryable error instead of looping into the generic
+            // CouldNotWriteSlug (the write would only ever hit the same taken slug). The
+            // reserved list is intentionally NOT consulted here — that guard is disabled with
+            // uniqueness; only a real competing row counts.
+            if ($this->existsInStore($base, $request, $config)) {
+                throw new SlugCollision($request->sluggableType, $base, $request->locale, $request->scope);
+            }
+
             return $base;
         }
 
@@ -85,11 +96,22 @@ final class DefaultSlugGenerator implements SlugGenerator
             }
         }
 
+        return $this->existsInStore($slug, $request, $config);
+    }
+
+    /**
+     * Whether a competing slug row already exists in the store for this (type, locale,
+     * scope), the model's own rows excluded. Unlike isTaken() this ignores the reserved
+     * list: it answers "does another model already hold this slug?" — exactly the collision
+     * a `unique: false` model must fail on, having opted out of the numeric suffix.
+     */
+    private function existsInStore(string $slug, SlugRequest $request, PolyslugConfig $config): bool
+    {
         $query = PolyslugSlug::query()
             ->where('sluggable_type', $request->sluggableType)
             ->where('locale', $request->locale)
             ->where('scope', $request->scope)
-            ->whereRaw('lower(slug) = ?', [$lowerSlug]);
+            ->whereRaw('lower(slug) = ?', [Str::lower($slug)]);
 
         // For id-based models only current slugs collide (a superseded slug is free to
         // reuse — the id still disambiguates). Slug-only models must also reserve retired
