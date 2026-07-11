@@ -18,6 +18,7 @@ final class Polyslug
 {
     /**
      * @param  string|list<string>  $source  Column(s) the slug is built from.
+     * @param  bool  $unique  true (default) appends a numeric suffix (-2, -3, …) on a collision. false keeps the slug as-is — it must then be collision-free within its (type, locale, scope), or generation throws Polyslug\Exceptions\SlugCollision.
      * @param  string|list<string>|null  $scope  Column(s) that scope uniqueness (e.g. tenant_id).
      * @param  list<string>  $reserved  Slugs that may never be assigned.
      * @param  string|null  $encoder  A fully-qualified IdentityEncoder class to override the global encoder for this model only.
