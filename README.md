@@ -698,6 +698,96 @@ Route::get('/go/{token}', Polyslug\Http\Controllers\ShortLinkController::class);
 $token = $product->shortLink(); // stable; /go/{token} 301s to the current canonical URL
 ```
 
+### Social / UGC — many posts can share a title
+
+```php
+#[Polyslug(source: 'title', unique: false)] // two posts titled "Hello World" coexist — no "-2"; the id disambiguates: /p/hello-world_a1B
+class Post extends Model implements Sluggable
+{
+    use HasPolyslug;
+}
+```
+
+### Marketplace — per-seller slugs, only live listings resolve
+
+```php
+#[Polyslug(source: 'title', scope: 'shop_id')] // each shop's listings are unique within the shop
+class Listing extends Model implements Sluggable
+{
+    use HasPolyslug;
+
+    public function polyslugResolveQuery(Builder $query): Builder
+    {
+        return $query->where('status', 'published'); // a draft or paused listing 404s — no id enumeration
+    }
+
+    public function polyslugIsRoutable(?string $locale = null): bool
+    {
+        return $this->status === 'published'; // keep drafts out of the sitemap and hreflang
+    }
+}
+```
+
+### Headless CMS — one route for every content type
+
+```php
+// config/polyslug.php — map each type to its model
+'types' => [
+    'pages' => \App\Models\Page::class,
+    'articles' => \App\Models\Article::class,
+],
+
+// one catch-all route resolves the right model from {type}
+Route::get('/{type}/{polyslug}', [ContentController::class, 'show'])->middleware('polyslug.canonical');
+```
+
+### Government / enterprise — frozen slugs, 410 Gone, supersede redirects
+
+```php
+#[Polyslug(source: 'title', immutable: true)] // a published regulation's slug never changes
+class Regulation extends Model implements Sluggable
+{
+    use HasPolyslug;
+
+    public function polyslugIsGone(): bool
+    {
+        return $this->status === 'repealed'; // a repealed record returns 410 Gone
+    }
+
+    public function polyslugSupersededBy(): ?Sluggable
+    {
+        return $this->amendment; // an amended record 301s to its successor's canonical URL
+    }
+}
+```
+
+### Events / ticketing — QR short links that survive renames
+
+```php
+#[Polyslug(source: 'name')] // /events/summer-fest_x7Q — renaming the event 301s every old link
+class Event extends Model implements Sluggable
+{
+    use HasPolyslug;
+}
+
+$qr = $event->shortLink(); // print on the ticket; /go/{token} follows the event's current URL (see "Sharing / QR codes")
+```
+
+### Real estate / geo — nested location paths
+
+```php
+#[Polyslug(source: 'title', scope: 'city_id')] // identical listing titles are fine across cities
+class Property extends Model implements Sluggable
+{
+    use HasPolyslug;
+
+    public function polyslugParent(): ?Sluggable
+    {
+        return $this->neighborhood; // /berlin/mitte/loft-am-park_x7Q — the path is composed from the location
+    }
+}
+```
+
 ## Configuration
 
 Publish the configuration file to customize the encoder, Sqids alphabet, redirect
