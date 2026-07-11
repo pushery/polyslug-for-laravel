@@ -18,7 +18,7 @@ final class Polyslug
 {
     /**
      * @param  string|list<string>  $source  Column(s) the slug is built from.
-     * @param  bool  $unique  true (default) appends a numeric suffix (-2, -3, …) on a collision. false keeps the slug as-is — it must then be collision-free within its (type, locale, scope), or generation throws Polyslug\Exceptions\SlugCollision.
+     * @param  bool  $unique  true (default) appends a numeric suffix (-2, -3, …) on a collision. false lets records share a slug — no suffix, and the rows are excluded from the uniqueness index (a non-idLess URL resolves by the encoded id, not the slug). Combining false with idLess is rejected (MisconfiguredPolyslug), since an idLess model resolves BY its slug.
      * @param  string|list<string>|null  $scope  Column(s) that scope uniqueness (e.g. tenant_id).
      * @param  list<string>  $reserved  Slugs that may never be assigned.
      * @param  string|null  $encoder  A fully-qualified IdentityEncoder class to override the global encoder for this model only.

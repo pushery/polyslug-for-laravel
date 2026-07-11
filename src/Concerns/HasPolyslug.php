@@ -287,7 +287,7 @@ trait HasPolyslug
             // on every engine — MySQL's savepoint rollback is unreliable once DDL has implicitly
             // committed the outer transaction. Exhausting the attempts throws outside any
             // transaction, leaving the original current slug untouched.
-            $inserted = DB::transaction(function () use ($current, $locale, $scope, $desired): int {
+            $inserted = DB::transaction(function () use ($current, $locale, $scope, $desired, $config): int {
                 $current?->update(['is_current' => false]);
 
                 $inserted = PolyslugSlug::query()->insertOrIgnore([
@@ -297,6 +297,10 @@ trait HasPolyslug
                     'scope' => $scope,
                     'slug' => $desired,
                     'is_current' => true,
+                    // A non-idLess unique:false model opts its rows out of the current_unique
+                    // index so records may share a slug (the id in the URL disambiguates).
+                    // idLess is always unique (enforced by MisconfiguredPolyslug at config time).
+                    'enforce_unique' => $config->unique,
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
