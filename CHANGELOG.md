@@ -4,6 +4,14 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-13
+
+### Added
+- The package now ships its translation set in all seven default locales — **de, en,
+  es, fr, it, nl, pt** — under `lang/*`. A boot test enforces that every one of the
+  seven has its own `messages.php` and resolves its strings in its own words (no silent
+  English fallback), so the locale coverage can never regress.
+
 ## [0.2.1] - 2026-07-11
 
 ### Documentation
