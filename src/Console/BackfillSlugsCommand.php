@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polyslug\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -34,7 +35,7 @@ final class BackfillSlugsCommand extends Command
 
         if ($this->option('queue') === true) {
             $dispatched = 0;
-            $dispatcher = app(Dispatcher::class);
+            $dispatcher = Container::getInstance()->make(Dispatcher::class);
 
             $model::query()->chunkById($this->chunkSize(), function (Collection $rows) use ($model, $locale, $dispatcher, &$dispatched): void {
                 $dispatcher->dispatch(new BackfillSlugsJob($model, array_values($rows->modelKeys()), $locale));

@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a defect in Polyslug.
+description: "Report a defect in Polyslug."
 labels: ["bug"]
 body:
   - type: markdown

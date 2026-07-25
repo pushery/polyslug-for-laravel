@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +24,7 @@ use Polyslug\Contracts\SlugGenerator;
 use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Generators\DefaultSlugGenerator;
 use Polyslug\Http\Middleware\EnsureCanonicalSlug;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class PolyslugServiceProvider extends ServiceProvider
 {
@@ -72,8 +74,10 @@ final class PolyslugServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->loadViewsFrom(__DIR__.'/../resources/views', 'polyslug');
-        $this->loadTranslationsFrom(__DIR__.'/../lang', 'polyslug');
+        // No views and no translations: this package routes and resolves, it renders
+        // nothing and emits no user-facing text. Its exception messages and console
+        // output are addressed to developers. Registering an empty namespace would
+        // publish scaffolding that documents nothing.
         $this->loadRoutesFrom(__DIR__.'/../routes/polyslug.php');
 
         if (self::$runsMigrations) {
@@ -85,7 +89,7 @@ final class PolyslugServiceProvider extends ServiceProvider
         $router->bind('polyslug', function (string $value, Route $route): Model {
             $type = $route->parameter('type');
 
-            return app(PolyslugResolver::class)->resolve(is_string($type) ? $type : '', $value) ?? abort(404);
+            return Container::getInstance()->make(PolyslugResolver::class)->resolve(is_string($type) ? $type : '', $value) ?? throw new NotFoundHttpException;
         });
 
         // Route::polyslug('/pages/{page}', ...) wires SubstituteBindings THEN polyslug.canonical
@@ -105,20 +109,31 @@ final class PolyslugServiceProvider extends ServiceProvider
 
     private function registerPublishing(): void
     {
+        // Resolve publish targets through the Application contract's path methods
+        // (available via illuminate/contracts), NOT the config_path()/database_path()/
+        // resource_path()/lang_path() global helpers. Those are Foundation helpers,
+        // shipped ONLY with laravel/framework — which this package does not require —
+        // so the helper form would freeze a wrong dependency contract and fatal in a
+        // non-Foundation host. The method form is behavior-identical.
+        //
+        // Each group carries the bare 'polyslug' umbrella tag on top of its specific
+        // one, so `vendor:publish --tag="polyslug"` publishes every resource at once —
+        // the tag convention Laravel's official package skeleton establishes.
         $this->publishes([
-            __DIR__.'/../config/polyslug.php' => config_path('polyslug.php'),
-        ], 'polyslug-config');
+            __DIR__.'/../config/polyslug.php' => $this->app->configPath('polyslug.php'),
+        ], ['polyslug', 'polyslug-config']);
 
-        $this->publishes([
-            __DIR__.'/../database/migrations' => database_path('migrations'),
-        ], 'polyslug-migrations');
+        // publishesMigrations(), not publishes(): it rewrites the bundled
+        // 0001_01_01_000000 ordering prefix to the publish date, so a published
+        // migration sorts AFTER the host app's existing migrations instead of before
+        // all of them (where it would run before the tables it may reference exist).
+        $this->publishesMigrations([
+            __DIR__.'/../database/migrations' => $this->app->databasePath('migrations'),
+        ], ['polyslug', 'polyslug-migrations']);
 
-        $this->publishes([
-            __DIR__.'/../resources/views' => resource_path('views/vendor/polyslug'),
-        ], 'polyslug-views');
-
-        $this->publishes([
-            __DIR__.'/../lang' => lang_path('vendor/polyslug'),
-        ], 'polyslug-lang');
+        // There is deliberately no views or lang group: the package ships neither.
+        // Both existed until 0.4.0 and contained only the generator's placeholders
+        // ("This is an example Polyslug translation string."), so publishing them
+        // copied scaffolding into consuming applications.
     }
 }
