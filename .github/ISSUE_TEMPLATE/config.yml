@@ -3,6 +3,6 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/pushery/polyslug-for-laravel/security/advisories/new
     about: Please report security issues privately, never as a public issue. See SECURITY.md.
-  - name: Pushery
-    url: https://github.com/pushery
+  - name: "Pushery"
+    url: "https://github.com/pushery"
     about: Learn more about the team behind this package.

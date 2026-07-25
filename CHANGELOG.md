@@ -4,6 +4,50 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-26
+
+### Removed
+- **Breaking.** The package no longer ships views or translations, and the
+  `polyslug-views` / `polyslug-lang` publish tags and the `polyslug::` view and
+  translation namespaces are gone with them. Both directories held nothing but the
+  generator's placeholders — a comment-only Blade file and seven copies of *"This is
+  an example Polyslug translation string."* — and no shipped code ever resolved a
+  translation key or rendered a view. Polyslug routes and resolves; it renders nothing
+  and emits no user-facing text (its exception messages and console output address
+  developers). If you published either tag, the published files were placeholders and
+  can be deleted.
+
+### Fixed
+- **Publishing no longer fatals on a lean install.** `vendor:publish` resolved its
+  targets through the `config_path()` / `database_path()` / `resource_path()` /
+  `lang_path()` global helpers, which ship only with `laravel/framework` — a package
+  this one does not require. They are gone, along with every other Foundation-only
+  helper in shipped code (`app()`, `config()`, `abort()`, `event()`, `now()`), all now
+  resolved through the container and the `illuminate/contracts` interfaces.
+- **Published migrations sort correctly.** The bundled migration is published with
+  `publishesMigrations()`, so its `0001_01_01_000000` ordering prefix is rewritten to
+  the publish date. Previously it sorted before every migration the host application
+  already had, and so ran before the tables it may reference existed.
+- **The dependency declaration matches what the code uses.** `composer.json` required
+  only `illuminate/contracts` and `illuminate/support` while the code used Eloquent,
+  the router, HTTP, the console, Blade and the filesystem. Eight components are now
+  declared: `collections`, `console`, `container`, `database`, `filesystem`, `http`,
+  `routing` and `view`.
+
+### Added
+- `vendor:publish --tag=polyslug` publishes every resource group at once, alongside
+  the existing per-group tags.
+
+### Documentation
+- The full documentation now lives at
+  [docs.pushery.com/polyslug-for-laravel](https://docs.pushery.com/polyslug-for-laravel/),
+  restructured into pages you can link to: installation, quick start, how it works, a page
+  per feature, one per persona recipe, a reference section (configuration, attribute
+  options, model API, commands, events, contracts, exceptions, database) and guides for
+  testing, diagnostics and troubleshooting. Nothing was dropped in the move — the
+  reference and database pages document surface the README never covered. The README is
+  now a short showcase that links there.
+
 ## [0.3.0] - 2026-07-13
 
 ### Added

@@ -27,7 +27,14 @@ final class MakePolyslugCommand extends Command
         }
 
         $class = Str::studly(class_basename($name));
-        $path = app_path('Models/'.$class.'.php');
+
+        // basePath('app/…') through the Application contract, not the app_path()
+        // global helper: that helper ships only with laravel/framework's Foundation
+        // helpers, which this package does not require (LeanDependencyContractTest).
+        // The contract exposes basePath but not path(), so the `app/` segment is
+        // spelled out — which also makes the convention this scaffolder assumes
+        // visible rather than hidden behind a helper.
+        $path = $this->laravel->basePath('app/Models/'.$class.'.php');
 
         if ($files->exists($path)) {
             $this->error("Model [{$class}] already exists.");

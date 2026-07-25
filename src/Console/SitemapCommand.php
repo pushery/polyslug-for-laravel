@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polyslug\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\PolyslugUrlResolver;
@@ -20,14 +21,14 @@ final class SitemapCommand extends Command
 
     public function handle(): int
     {
-        if (! app()->bound(PolyslugUrlResolver::class)) {
+        if (! Container::getInstance()->bound(PolyslugUrlResolver::class)) {
             $this->error('Bind '.PolyslugUrlResolver::class.' to generate a sitemap.');
 
             return self::FAILURE;
         }
 
-        $resolver = app(PolyslugUrlResolver::class);
-        $types = app(ConfigRepository::class)->get('polyslug.sitemap.types', []);
+        $resolver = Container::getInstance()->make(PolyslugUrlResolver::class);
+        $types = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.sitemap.types', []);
         $entries = [];
 
         foreach (is_array($types) ? $types : [] as $class) {

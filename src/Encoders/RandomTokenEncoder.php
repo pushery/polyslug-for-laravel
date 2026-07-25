@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Encoders;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Override;
@@ -43,8 +44,8 @@ final class RandomTokenEncoder implements IdentityEncoder
         DB::table('polyslug_tokens')->insert([
             'key_value' => $key,
             'token' => $token,
-            'created_at' => now(),
-            'updated_at' => now(),
+            'created_at' => Carbon::now(),
+            'updated_at' => Carbon::now(),
         ]);
 
         return $this->encoded[$key] = $token;

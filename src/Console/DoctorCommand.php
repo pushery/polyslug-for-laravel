@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Polyslug\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Facades\Schema;
 use Polyslug\Contracts\IdentityEncoder;
 
@@ -34,8 +36,8 @@ final class DoctorCommand extends Command
 
     private function checkEncoders(): bool
     {
-        $legacy = config('polyslug.legacy_decoders', []);
-        $classes = array_merge([config('polyslug.encoder')], is_array($legacy) ? $legacy : []);
+        $legacy = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.legacy_decoders', []);
+        $classes = array_merge([Container::getInstance()->make(ConfigRepository::class)->get('polyslug.encoder')], is_array($legacy) ? $legacy : []);
         $ok = true;
 
         foreach ($classes as $class) {

@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Polyslug\Concerns;
 
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
@@ -127,7 +131,7 @@ trait HasPolyslug
 
         // The requested locale has no slug: fall back to the default locale's slug,
         // or emit a slug-less (id-only) key — per config polyslug.locale.missing.
-        if (config('polyslug.locale.missing', 'fallback') === 'fallback') {
+        if (Container::getInstance()->make(ConfigRepository::class)->get('polyslug.locale.missing', 'fallback') === 'fallback') {
             return $this->currentSlug($this->polyslugDefaultLocale());
         }
 
@@ -264,7 +268,7 @@ trait HasPolyslug
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             $current = $this->currentSlugRow($locale);
 
-            $desired = app(SlugGenerator::class)->generate(
+            $desired = Container::getInstance()->make(SlugGenerator::class)->generate(
                 new SlugRequest(
                     source: $source,
                     sluggableType: $this->getMorphClass(),
@@ -301,8 +305,8 @@ trait HasPolyslug
                     // index so records may share a slug (the id in the URL disambiguates).
                     // idLess is always unique (enforced by MisconfiguredPolyslug at config time).
                     'enforce_unique' => $config->unique,
-                    'created_at' => now(),
-                    'updated_at' => now(),
+                    'created_at' => Carbon::now(),
+                    'updated_at' => Carbon::now(),
                 ]);
 
                 if ($inserted === 0) {
@@ -313,7 +317,7 @@ trait HasPolyslug
             });
 
             if ($inserted > 0) {
-                event(new SlugChanged($this, $locale, $desired, $current?->slug));
+                Container::getInstance()->make(Dispatcher::class)->dispatch(new SlugChanged($this, $locale, $desired, $current?->slug));
 
                 return;
             }
@@ -324,7 +328,7 @@ trait HasPolyslug
 
     private function polyslugMaxWriteAttempts(): int
     {
-        $attempts = config('polyslug.write.max_attempts', 5);
+        $attempts = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.write.max_attempts', 5);
 
         return is_int($attempts) && $attempts >= 1 ? $attempts : 5;
     }
@@ -407,7 +411,7 @@ trait HasPolyslug
             return $id;
         }
 
-        $legacy = config('polyslug.legacy_decoders', []);
+        $legacy = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.legacy_decoders', []);
 
         foreach (is_array($legacy) ? $legacy : [] as $decoder) {
             if (! is_string($decoder)) {
@@ -416,7 +420,7 @@ trait HasPolyslug
             if (! class_exists($decoder)) {
                 continue;
             }
-            $instance = app($decoder);
+            $instance = Container::getInstance()->make($decoder);
 
             if ($instance instanceof IdentityEncoder) {
                 $id = $instance->decode($encodedId);
@@ -492,7 +496,7 @@ trait HasPolyslug
     private function polyslugEncoder(): IdentityEncoder
     {
         $config = $this->polyslugConfig();
-        $instance = $config->encoder === null ? app(IdentityEncoder::class) : app($config->encoder);
+        $instance = $config->encoder === null ? Container::getInstance()->make(IdentityEncoder::class) : Container::getInstance()->make($config->encoder);
 
         if (! $instance instanceof IdentityEncoder) {
             throw new InvalidArgumentException(sprintf(
@@ -530,14 +534,28 @@ trait HasPolyslug
 
     private function polyslugLocale(): string
     {
-        return app()->getLocale();
+        // The application's current locale, read the way the framework itself stores
+        // it: Application::getLocale() returns config('app.locale'), and setLocale()
+        // writes there — so this is the same value, not an approximation, and it needs
+        // no Foundation helper.
+        $locale = Container::getInstance()->make(ConfigRepository::class)->get('app.locale');
+
+        return is_string($locale) ? $locale : '';
     }
 
     private function polyslugDefaultLocale(): string
     {
-        $configured = config('polyslug.locale.fallback_locale');
+        $config = Container::getInstance()->make(ConfigRepository::class);
+        $configured = $config->get('polyslug.locale.fallback_locale');
 
-        return is_string($configured) && $configured !== '' ? $configured : app()->getFallbackLocale();
+        if (is_string($configured) && $configured !== '') {
+            return $configured;
+        }
+
+        // Same reasoning as above: getFallbackLocale() is config('app.fallback_locale').
+        $fallback = $config->get('app.fallback_locale');
+
+        return is_string($fallback) ? $fallback : '';
     }
 
     private function polyslugSource(PolyslugConfig $config): string

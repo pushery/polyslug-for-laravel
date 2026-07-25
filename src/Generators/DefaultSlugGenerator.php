@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Polyslug\Generators;
 
+use Illuminate\Container\Container;
+use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Str;
 use Override;
@@ -130,10 +132,10 @@ final class DefaultSlugGenerator implements SlugGenerator
      */
     private function reservedWords(PolyslugConfig $config): array
     {
-        $global = config('polyslug.reserved.global', []);
+        $global = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.reserved.global', []);
         $reserved = array_merge($config->reserved, is_array($global) ? array_values(array_filter($global, is_string(...))) : []);
 
-        if (config('polyslug.reserved.from_routes') === true) {
+        if (Container::getInstance()->make(ConfigRepository::class)->get('polyslug.reserved.from_routes') === true) {
             return array_merge($reserved, $this->registeredRoutePaths());
         }
 
@@ -150,7 +152,7 @@ final class DefaultSlugGenerator implements SlugGenerator
     {
         $paths = [];
 
-        foreach (app(Router::class)->getRoutes()->getRoutes() as $route) {
+        foreach (Container::getInstance()->make(Router::class)->getRoutes()->getRoutes() as $route) {
             $first = explode('/', $route->uri())[0];
 
             if ($first !== '' && ! str_contains($first, '{')) {
