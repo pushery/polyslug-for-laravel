@@ -21,6 +21,7 @@ use Polyslug\Console\MakePolyslugCommand;
 use Polyslug\Console\SitemapCommand;
 use Polyslug\Contracts\IdentityEncoder;
 use Polyslug\Contracts\SlugGenerator;
+use Polyslug\Encoders\RandomTokenEncoder;
 use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Generators\DefaultSlugGenerator;
 use Polyslug\Http\Middleware\EnsureCanonicalSlug;
@@ -45,7 +46,11 @@ final class PolyslugServiceProvider extends ServiceProvider
         $this->mergeConfigFrom(__DIR__.'/../config/polyslug.php', 'polyslug');
 
         $this->app->singleton(IdentityEncoder::class, static function (Application $app): IdentityEncoder {
-            $encoder = $app->make(ConfigRepository::class)->get('polyslug.encoder', SqidsEncoder::class);
+            // The fallback matters as much as the config file: mergeConfigFrom covers a
+            // consumer who never published the config, but a config PUBLISHED from an older
+            // version has no 'encoder' key at all and lands here. Both paths must arrive at
+            // the leak-free encoder, or "safe by default" holds only for new installs.
+            $encoder = $app->make(ConfigRepository::class)->get('polyslug.encoder', RandomTokenEncoder::class);
             $instance = is_string($encoder) ? $app->make($encoder) : null;
 
             if (! $instance instanceof IdentityEncoder) {
@@ -74,11 +79,13 @@ final class PolyslugServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // No views and no translations: this package routes and resolves, it renders
-        // nothing and emits no user-facing text. Its exception messages and console
-        // output are addressed to developers. Registering an empty namespace would
-        // publish scaffolding that documents nothing.
-        $this->loadRoutesFrom(__DIR__.'/../routes/polyslug.php');
+        // No views, no translations and no routes. This package renders nothing and
+        // emits no user-facing text (its exception messages and console output address
+        // developers), and it deliberately registers no route of its own: the one
+        // controller it ships, ShortLinkController, is mounted by the consuming
+        // application at a path of its choosing — its docblock and the Sluggable
+        // contract both say so. A routes file with nothing in it is scaffolding that
+        // costs a require on every boot and documents a route that does not exist.
 
         if (self::$runsMigrations) {
             $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
