@@ -4,6 +4,24 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-07-26
+
+### Documentation
+- **The installation page advertised two publish tags that no longer exist.**
+  `--tag=polyslug-views` and `--tag=polyslug-lang` were removed in 0.4.0 along with the
+  placeholder views and translations, so anyone following the documented steps got an
+  error. It now lists the two real tags and the umbrella one, and says why there is
+  nothing else to publish.
+- The configuration reference still showed `SqidsEncoder` as the encoder default — the
+  one setting where stale documentation is dangerous rather than merely wrong.
+- `CouldNotIssueToken` (added in 0.5.0) has an exceptions-reference entry.
+- `polyslug:doctor` was documented as checking encoders and indexes only. The
+  resolution-gate report added in 0.5.0 is now described in both the command reference
+  and the diagnostics guide — including that it reports without failing, which is the
+  part that decides how a reader should act on it.
+
+No code changes; this release is documentation only.
+
 ## [0.5.0] - 2026-07-26
 
 ### Fixed
