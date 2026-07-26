@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Polyslug\Encoders\SqidsEncoder;
+use Polyslug\Encoders\RandomTokenEncoder;
 
 return [
 
@@ -14,14 +14,29 @@ return [
     | Maps a model's key to and from the opaque token embedded in its URL
     | (.../my-title_aB3xK). Must implement Polyslug\Contracts\IdentityEncoder.
     |
-    | The default SqidsEncoder is OBFUSCATION, NOT SECURITY: a Sqids token is
-    | reversible by anyone who knows the alphabet, and it still reveals row count
-    | and growth. Swap it for a leak-free encoder (UUID, ULID, or a random public
-    | token) when count or creation time must not be inferable.
+    | The default is RandomTokenEncoder: it stores an unguessable random token per
+    | key, so the URL reveals nothing — not the primary key, not the row count, not
+    | how fast the table grows. It costs one row in polyslug_tokens per record, and
+    | one INSERT the first time a given record's URL is rendered.
+    |
+    | SqidsEncoder is fully supported and is the right choice when you want short,
+    | deterministic tokens and the id space is not sensitive — but it is OBFUSCATION,
+    | NOT SECURITY: a Sqids token decodes straight back to the primary key, so every
+    | URL leaks the key, the creation order and the growth rate, and an unguessable
+    | URL becomes a constructible one. That is a decision to make deliberately, which
+    | is why it is no longer what you get by not deciding.
+    |
+    | SWITCHING ENCODERS WITHOUT BREAKING LINKS. Put the old encoder in
+    | legacy_decoders below: existing URLs keep resolving through it, and the
+    | canonical middleware 301s them to the new format as they are visited. Old links
+    | self-heal instead of breaking.
+    |
+    |     'encoder' => RandomTokenEncoder::class,
+    |     'legacy_decoders' => [SqidsEncoder::class],
     |
     */
 
-    'encoder' => SqidsEncoder::class,
+    'encoder' => RandomTokenEncoder::class,
 
     /*
     |--------------------------------------------------------------------------

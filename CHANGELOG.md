@@ -4,6 +4,49 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-26
+
+### Fixed
+- **`RandomTokenEncoder` no longer 500s on a concurrent first render.** `encode()` did a
+  read-then-write against a unique index, so two requests rendering the same
+  never-before-encoded model both missed the lookup and both inserted — the loser took a
+  constraint violation, and because `encode()` runs on the URL-render path that surfaced
+  as an intermittent 500 on a `GET`. The loser now adopts the winner's token, so both
+  requests emit the same canonical URL. Proven against real PostgreSQL and MySQL 8.4.
+- **The same fix survives MySQL's REPEATABLE READ.** A caller encoding inside
+  `DB::transaction()` could not see the row it kept colliding with; the retry now reads
+  `FOR UPDATE` after a lost attempt. PostgreSQL never exhibited this, which is why the
+  proof runs on both engines.
+
+### Changed
+- **`RandomTokenEncoder` is the default encoder.** `SqidsEncoder` remains fully
+  supported, but its token decodes straight back to the primary key — every URL leaked
+  the key, the creation order and the growth rate. That is a trade worth making
+  deliberately, not one you get by not deciding.
+- `polyslug:doctor` now reports every registered type that never overrode
+  `polyslugResolveQuery()`. Those models resolve any slug to any row — correct for public
+  content, a silent authorization bypass for anything owner-scoped. It reports and still
+  exits successfully: the check makes the choice visible, it does not make it.
+
+### Removed
+- **Breaking.** `routes/polyslug.php` and its `loadRoutesFrom()` call are gone. The file
+  held only comments; `ShortLinkController` is mounted by the consuming application at a
+  path of its choosing, as its own docblock and the `Sluggable` contract both describe.
+
+### Upgrading from 0.4.x
+If you **published** `config/polyslug.php`, nothing changes — your file still names the
+encoder it always did. If you **did not**, you inherit `RandomTokenEncoder` and existing
+URLs stop resolving. Either pin the old encoder, or take the migration and let old links
+self-heal:
+
+```php
+'encoder'         => RandomTokenEncoder::class,
+'legacy_decoders' => [SqidsEncoder::class],
+```
+
+Old URLs keep resolving through the legacy decoder and are `301`ed to the new format as
+they are visited — no flag day, no broken bookmarks.
+
 ## [0.4.0] - 2026-07-26
 
 ### Removed
