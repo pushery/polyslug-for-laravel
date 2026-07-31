@@ -73,6 +73,10 @@ Rename the page and the old URL `301`s to the new one, by itself.
   category — whatever columns you name.
 - 🗂️ **History, events & immutability.** Superseded slugs are kept so old URLs keep
   resolving; a `SlugChanged` event fires on every change; slugs can be frozen.
+- 🤝 **Writes its own `<head>` via `laravel/head`.** Install Laravel's `<head>` package and
+  `Head::polyslug($model)` fills in the canonical URL, the `hreflang` set, the Open Graph
+  locales and a `robots` directive for models your visibility gate hides. Optional —
+  Polyslug requires nothing beyond slim `illuminate/*` components either way.
 - ✅ **Serious about correctness.** PHPStan at `max`, 100% line + type coverage, and a
   mutation-tested suite that runs on SQLite, PostgreSQL, **and** MySQL 8.4.
 
@@ -83,6 +87,7 @@ Rename the page and the old URL `301`s to the new one, by itself.
 - [Installation](https://docs.pushery.com/polyslug-for-laravel/installation) — requirements, the migration, publishing
 - [Quick start](https://docs.pushery.com/polyslug-for-laravel/quick-start) — a sluggable model and a self-healing route
 - [Features](https://docs.pushery.com/polyslug-for-laravel/features) — encoders, hreflang, nested paths, sitemaps, short links
+- [laravel/head](https://docs.pushery.com/polyslug-for-laravel/features/laravel-head) — canonical URL, hreflang and indexability in Laravel's `<head>` package
 - [Recipes](https://docs.pushery.com/polyslug-for-laravel/recipes) — twelve app shapes wired end to end
 - [Reference](https://docs.pushery.com/polyslug-for-laravel/reference/configuration) — every config key, option, command, event and contract
 

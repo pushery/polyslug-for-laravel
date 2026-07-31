@@ -14,17 +14,20 @@ use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
+use Laravel\Head\HeadManager;
 use Override;
 use Polyslug\Console\BackfillSlugsCommand;
 use Polyslug\Console\DoctorCommand;
 use Polyslug\Console\MakePolyslugCommand;
 use Polyslug\Console\SitemapCommand;
 use Polyslug\Contracts\IdentityEncoder;
+use Polyslug\Contracts\Sluggable;
 use Polyslug\Contracts\SlugGenerator;
 use Polyslug\Encoders\RandomTokenEncoder;
 use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Generators\DefaultSlugGenerator;
 use Polyslug\Http\Middleware\EnsureCanonicalSlug;
+use Polyslug\Support\PolyslugHead;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class PolyslugServiceProvider extends ServiceProvider
@@ -108,9 +111,38 @@ final class PolyslugServiceProvider extends ServiceProvider
             static fn (string $expression): string => "<?php echo \\Polyslug\\Support\\PolyslugBlade::hreflang({$expression}); ?>",
         );
 
+        $this->registerHeadIntegration();
+
         if ($this->app->runningInConsole()) {
             $this->commands([BackfillSlugsCommand::class, DoctorCommand::class, MakePolyslugCommand::class, SitemapCommand::class]);
             $this->registerPublishing();
+        }
+    }
+
+    /**
+     * laravel/head is an OPTIONAL companion, never a dependency. When the host has it,
+     * a Polyslug model can describe the four <head> facts Polyslug alone knows:
+     *
+     *     Head::polyslug($page);   // canonical + hreflang + og:locale + indexability
+     *
+     * Everything below is skipped without it, PolyslugHead is then never loaded, and
+     * the package behaves exactly as it did before. That is why the class reference is
+     * guarded rather than merely imported — an import that only resolves because the
+     * class happens to sit in the vendor tree is the defect DeclaredDependencyContractTest
+     * exists to catch, one ecosystem over.
+     */
+    private function registerHeadIntegration(): void
+    {
+        // Written as a positive guard rather than an early return on purpose: the
+        // negative branch is UNREACHABLE here, because laravel/head is a dev dependency
+        // and therefore always installed in this suite. An early `return;` would be a
+        // permanently uncovered line, and the honest fix for a line no test can reach is
+        // to not write it — not to annotate it away.
+        if (class_exists(HeadManager::class)) {
+            HeadManager::macro('polyslug', function (Sluggable $model, ?string $locale = null): HeadManager {
+                /** @var HeadManager $this */
+                return PolyslugHead::apply($this, $model, $locale);
+            });
         }
     }
 
