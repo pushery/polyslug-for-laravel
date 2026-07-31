@@ -4,6 +4,43 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-31
+
+### Added
+- **Optional `laravel/head` integration.** With Laravel's `<head>` package installed,
+  `Head::polyslug($model)` writes the four head facts Polyslug is the authority on: the
+  canonical URL (from the bound `PolyslugUrlResolver`, not the request), the reciprocal
+  `hreflang` set, the Open Graph locale set, and `robots: none` for a model
+  `polyslugIsRoutable()` keeps out of the routable set. It writes nothing else — title,
+  description, cards and structured data stay the application's.
+  - The canonical URL is the reason it exists. `laravel/head` falls back to the request
+    URL, so on a route without the `polyslug.canonical` middleware — where a stale slug
+    renders instead of redirecting — it names the outdated URL as the authority.
+  - The robots directive closes a quieter leak: a gated model still renders for whoever
+    may see it, so without it a single shared link is enough to index a hidden page.
+  - `laravel/head` stays optional in both directions. It is a `suggest`, the macro
+    registers only behind `class_exists()`, and Polyslug's runtime dependency set is
+    unchanged.
+
+### Fixed
+- **Both Laravel Boost artifacts still named `SqidsEncoder` as the encoder default.** The
+  default became `RandomTokenEncoder` in 0.5.0, and Boost reads these files out of
+  `vendor/` to advise inside consuming applications — so the one setting where stale
+  guidance is dangerous rather than merely wrong was being handed to an assistant as
+  current. Both now name the real default and say what `SqidsEncoder` actually exposes
+  (primary key, creation order, growth rate) instead of the vaguer "obfuscation, not
+  security".
+
+### Changed
+- **The test toolchain moved to Pest 5**, and the browser toolchain to Playwright 1.62.1
+  together with the CI image that bakes the matching browser binaries. The two are a pair:
+  moving the npm client without the image is what makes a browser step fail with
+  "Executable doesn't exist".
+- Development dependencies were refreshed within their constraints. `composer.json` now
+  also carries a `suggest` entry for `laravel/head` — the package's own runtime
+  requirements are unchanged and still consist of slim `illuminate/*` components plus
+  `sqids/sqids`.
+
 ## [0.5.1] - 2026-07-26
 
 ### Documentation

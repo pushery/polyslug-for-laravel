@@ -28,16 +28,25 @@
         "sqids/sqids": "^0.5.0"
     },
     "require-dev": {
+        "cweagans/composer-patches": "^1.7",
         "larastan/larastan": "^3.0",
+        "laravel/head": "^0.1.0",
         "laravel/pao": "^1.1",
         "laravel/pint": "^1.0",
         "orchestra/testbench": "^11.0",
-        "pestphp/pest": "^4.0",
-        "pestphp/pest-plugin-browser": "^4.3",
-        "pestphp/pest-plugin-laravel": "^4.0",
-        "pestphp/pest-plugin-type-coverage": "^4.0",
+        "pestphp/pest": "^5.0",
+        "pestphp/pest-plugin-agent": "^5.0",
+        "pestphp/pest-plugin-browser": "^5.0",
+        "pestphp/pest-plugin-evals": "^5.0",
+        "pestphp/pest-plugin-laravel": "^5.0",
+        "pestphp/pest-plugin-phpstan": "^5.0",
+        "pestphp/pest-plugin-rector": "^5.0",
+        "pestphp/pest-plugin-type-coverage": "^5.0",
         "rector/rector": "^2.0",
         "spaze/phpstan-disallowed-calls": "^4.12"
+    },
+    "suggest": {
+        "laravel/head": "Lets a Polyslug model describe its own <head>: Head::polyslug($model) writes the canonical URL, the reciprocal hreflang set, the Open Graph locale set and the robots directive from the model's own slug data."
     },
     "autoload": {
         "psr-4": {
@@ -58,7 +67,8 @@
         "test:type-coverage": "pest --type-coverage --min=100",
         "test:browser": "pest tests/Browser",
         "test:database": "pest --testsuite=Postgres,MySql",
-        "analyse": "phpstan analyse",
+        "test:evals": "pest tests/Evals --evals",
+        "analyse": "phpstan analyse --memory-limit=1G",
         "format": "pint",
         "format:test": "pint --test",
         "rector": "rector process",

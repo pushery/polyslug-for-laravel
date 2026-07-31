@@ -70,9 +70,10 @@ decode miss — encoder migration), `write.max_attempts`, `locale.{source,route_
 ## Leak-safe identity encoders
 
 `IdentityEncoder::encode(int|string): string` / `decode(string): int|string|null` (null → 404,
-never a fuzzy match). Built in: `SqidsEncoder` (default, obfuscation not security),
-`UuidEncoder`, `UlidEncoder` (leaks creation time), `RawIdEncoder` (raw PK — internal only),
-`RandomTokenEncoder` (unguessable random token in `polyslug_tokens`, leak-free for integer keys).
+never a fuzzy match). Built in: `RandomTokenEncoder` (**the default** — unguessable random
+token in `polyslug_tokens`, leak-free for integer keys), `SqidsEncoder` (obfuscation, not
+security: reversible, and it leaks the primary key, creation order and growth rate),
+`UuidEncoder`, `UlidEncoder` (leaks creation time), `RawIdEncoder` (raw PK — internal only).
 Non-canonical tokens (wrong length, leading zeros, re-encoded alias) resolve to a clean 404, so
 each record has exactly one canonical URL. Migrate encoders without breaking links by listing
 the previous encoder in `polyslug.legacy_decoders`.
@@ -116,6 +117,27 @@ $page->hreflangTags(fn (string $locale, string $key) => route('pages.show', [$lo
 ```
 
 Or in Blade: `@polyslugHreflang($page, $resolver)`.
+
+## `laravel/head` (optional) {#laravel-head}
+
+If `laravel/head` is installed, let it own the `<head>` instead of rendering tags yourself.
+`Head::polyslug($model)` writes ONLY what Polyslug is the authority on — canonical URL (from
+the bound `PolyslugUrlResolver`, not the request), the reciprocal hreflang set, `og:locale`
+plus alternates, and `robots: none` when `polyslugIsRoutable()` is false. Title, description,
+cards and JSON-LD stay yours.
+
+```php
+Head::polyslug($article)->title($article->title)->description($article->excerpt);
+Head::polyslug($article, $request->route('locale')); // on a /{locale}/... route
+```
+
+Two rules. **Pick one hreflang path** — `Head::polyslug()` OR `@polyslugHreflang`, never both,
+or the page carries two identical alternate sets. And **`Head::canonical()` alone is not
+enough**: it falls back to the request URL, so on a route without `polyslug.canonical` a stale
+slug renders and that tag names the outdated URL as canonical.
+
+Requires a bound `PolyslugUrlResolver` for the URL tags; without one it writes only the robots
+directive rather than guessing a URL shape.
 
 ## Nested (hierarchical) slugs
 

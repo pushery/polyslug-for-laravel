@@ -41,7 +41,8 @@ Route::polyslug('/pages/{page}', [PageController::class, 'show']);
 - **Never treat the slug as the identifier.** Binding decodes the id; the slug is cosmetic and free to change.
 - **Multi-tenant / draft isolation is your job.** Override `polyslugResolveQuery(Builder): Builder` on the model to constrain which rows a slug may resolve to (tenant / published scope). It is enforced uniformly across bound routes, the polymorphic resolver, slug-only, and short links; without it, resolution can cross tenants.
 - **One resolver for canonical AND hreflang.** Build the reciprocal set from the same URL resolver as your canonical URL via `$model->hreflangTags($resolver)` (or the `@polyslugHreflang($model, $resolver)` Blade directive) so they cannot drift apart.
-- **Pick the encoder for the threat model.** The default `SqidsEncoder` is obfuscation, not security. For enumeration-sensitive data use `UuidEncoder`, `UlidEncoder`, or `RandomTokenEncoder` via `polyslug.encoder` (or per model with `#[Polyslug(encoder: ...)]`).
+- **Using `laravel/head`? Let it own the `<head>`.** `Head::polyslug($model)` writes the canonical URL, the hreflang set, `og:locale` and a `robots` directive for gated models — and nothing else. Use it INSTEAD of `@polyslugHreflang`, never alongside it, or the page carries two identical alternate sets. Note that `Head::canonical()` on its own falls back to the request URL, which is the stale one on any route without the `polyslug.canonical` middleware.
+- **Pick the encoder for the threat model.** The default is `RandomTokenEncoder`, which is leak-free. Switching to `SqidsEncoder` buys shorter tokens at the cost of real information: it is reversible and exposes the primary key, creation order and growth rate. Choose per project via `polyslug.encoder` (or per model with `#[Polyslug(encoder: ...)]`).
 
 ### More features
 
