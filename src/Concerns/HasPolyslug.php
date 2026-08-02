@@ -8,6 +8,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Carbon;
@@ -143,7 +144,9 @@ trait HasPolyslug
         $config = $this->polyslugConfig();
         $locale ??= $this->polyslugLocale();
 
-        if ($this->currentSlugRow($locale) !== null && ($config->immutable || ! $this->wasChanged($config->source))) {
+        // fresh: a write decides against what is current NOW, never against a collection
+        // loaded before this request touched anything.
+        if ($this->currentSlugRow($locale, fresh: true) !== null && ($config->immutable || ! $this->wasChanged($config->source))) {
             return;
         }
 
@@ -162,6 +165,19 @@ trait HasPolyslug
      */
     public function slugLocales(): array
     {
+        // Reads the eager-loaded relation for the same reason currentSlugRow() does, and
+        // it matters more here: this is what polyslugUrls() calls first, so every hreflang
+        // set, every <head> and every sitemap entry used to open with its own query.
+        if ($this->relationLoaded('slugs')) {
+            return array_values(
+                $this->currentSlugsInMemory(null)
+                    ->map(fn (PolyslugSlug $slug): string => $slug->locale)
+                    ->sort()
+                    ->values()
+                    ->all()
+            );
+        }
+
         return array_values(
             $this->slugs()
                 ->where('is_current', true)
@@ -266,7 +282,10 @@ trait HasPolyslug
         $attempts = $this->polyslugMaxWriteAttempts();
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
-            $current = $this->currentSlugRow($locale);
+            // fresh, and this is the attempt that makes it non-negotiable: the loop re-asks
+            // after a failed attempt precisely because another writer may have moved the row.
+            // A cached collection would hand back the same superseded row on every pass.
+            $current = $this->currentSlugRow($locale, fresh: true);
 
             $desired = Container::getInstance()->make(SlugGenerator::class)->generate(
                 new SlugRequest(
@@ -479,13 +498,56 @@ trait HasPolyslug
         return DeletionState::isForceDeleting($this);
     }
 
-    private function currentSlugRow(?string $locale = null): ?PolyslugSlug
+    /**
+     * The current slug row for a locale.
+     *
+     * Reads an EAGER-LOADED `slugs` relation when one is present, so a rendered list pays
+     * one query for every model instead of one per model per read. Without this, `slugs()`
+     * hands back the relation BUILDER and every read issues a fresh SELECT — which made
+     * `->with('slugs')` actively worse than not eager-loading at all: one extra query, and
+     * nothing using it.
+     *
+     * `$fresh` is not an optimization switch, it is a correctness one, and it is why this
+     * takes a parameter rather than always preferring the relation. A loaded collection
+     * describes the world at the moment it was loaded. Every READ may use it; no WRITE may,
+     * because a write decides what to store against what is current NOW — and `writeSlug()`
+     * re-asks inside its retry loop precisely because a concurrent writer may have moved the
+     * row since the previous attempt. Answering that from a cached collection would make the
+     * retry loop consult the same stale row forever.
+     */
+    private function currentSlugRow(?string $locale = null, bool $fresh = false): ?PolyslugSlug
     {
+        $locale ??= $this->polyslugLocale();
+
+        if (! $fresh && $this->relationLoaded('slugs')) {
+            // sortByDesc('id')->first(), matching the query's `orderByDesc('id')` exactly.
+            // Taking the first match instead would take the OLDEST current row and disagree
+            // with every non-eager read — a divergence no correctness test would show,
+            // because both answers are real slugs of the same model.
+            return $this->currentSlugsInMemory($locale)->sortByDesc('id')->first();
+        }
+
         return $this->slugs()
-            ->where('locale', $locale ?? $this->polyslugLocale())
+            ->where('locale', $locale)
             ->where('is_current', true)
             ->orderByDesc('id')
             ->first();
+    }
+
+    /**
+     * The loaded relation, narrowed to the current rows of one locale.
+     *
+     * @return Collection<int, PolyslugSlug>
+     */
+    private function currentSlugsInMemory(?string $locale): Collection
+    {
+        /** @var Collection<int, PolyslugSlug> $slugs */
+        $slugs = $this->getRelation('slugs');
+
+        return $slugs->filter(
+            fn (PolyslugSlug $slug): bool => $slug->is_current
+                && ($locale === null || $slug->locale === $locale)
+        );
     }
 
     private function polyslugConfig(): PolyslugConfig

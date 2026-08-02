@@ -120,6 +120,12 @@ return [
     | shadowing real routes or sensitive words (login, admin, api, cart, ...). A
     | reserved base is suffixed (admin → admin-2) just like any other collision.
     |
+    | 'from_routes' additionally reserves the FIRST static segment of every registered
+    | route ('/admin/users' reserves 'admin'), so a generated slug cannot shadow a real
+    | route without you having to list them by hand. Off by default: it reads the route
+    | table at generation time, and on an application with many routes that is work you
+    | should opt into rather than inherit.
+    |
     */
 
     'reserved' => [

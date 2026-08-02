@@ -4,6 +4,80 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-03
+
+### Added
+- **Eager-loading the `slugs` relation now makes route keys free.** `Model::with('slugs')`
+  used to be worse than nothing: `currentSlug()`, `polyslugRouteKey()` and `slugLocales()`
+  went through the relation *builder*, so every read issued its own `SELECT` and the eager
+  load was one extra query nobody used. They now read the loaded collection, which turns a
+  rendered list of links from one query per model into one query for all of them — and with
+  it every caller built on top: `polyslugUrls()`, `hreflangLinks()`, `hreflangTags()`,
+  `sitemapAlternateTags()`, `Head::polyslug()` and the sitemap command, all unchanged.
+  ```php
+  $pages = Page::query()->with('slugs')->paginate();  // links now cost nothing extra
+  ```
+  - **Writes deliberately do not use it.** `polyslugSync()` and `setSlug()` always re-read
+    the current row, because a write decides against what is current *now* — and the write
+    path re-asks inside its retry loop precisely because another writer may have moved the
+    row in between.
+  - `slugHistory()` also keeps querying: the natural eager-load recipe narrows the relation
+    to current rows, so answering history from it would report an empty past — a wrong
+    answer wearing the costume of a fast one.
+
+- **`composer test:affected`** runs only the tests that exercise the code you just changed,
+  via Pest's test-impact analysis (`pest --tia`). It is meant for the edit-run loop while
+  contributing; the full suite stays the one that decides. Pest's `--dirty` filter does not
+  cover this case: it keeps only changed files under `tests/`, so changing a file in `src/`
+  and nothing else selects no tests at all rather than the ones that run it.
+
+### Security
+- **A canonical redirect can no longer overtake the application's own authorization.**
+  `EnsureCanonicalSlug` used to answer before the route action ran, so on a stale slug it
+  sent a `301` whose `Location` header was built from the resolved row's canonical slug —
+  and a slug is usually the title. On a model whose `polyslugResolveQuery()` is still the
+  open default, any slug resolves to any row, so a request the application would have
+  refused received the answer anyway, in a header. The middleware now decides what it
+  would say **before** the action runs and says it only **after**, and only over a
+  successful (2xx) response; a refusal, or a redirect the action issued itself, is
+  returned untouched.
+  - The same deferral covers the two shapes the original report missed: a
+    `polyslugSupersededBy()` redirect leaked the **successor's** title the same way, and a
+    `polyslugIsGone()` `410` was a state oracle — it separated "exists and was withdrawn"
+    from "no such row" for a row the request was never allowed to see. All three now
+    return whatever the application returned.
+  - **Neither the resolution gate nor middleware order could have fixed this**, which is
+    why it needed a behavior change. Route binding runs through the same gate, so a bound
+    model has already passed it; and `Route::polyslug()` wires
+    `[SubstituteBindings, polyslug.canonical]` into the route, where Laravel's priority
+    sort does not lift an unprioritized `Authorize` in front of them — so even a consumer
+    who correctly writes `->middleware('can:...')` was affected. Authorization performed
+    inside the action had no escape at all.
+  - **What this costs:** on a request that will be redirected, the route action now runs
+    and its response is discarded. A `GET` action should have no side effects, but "should"
+    is the operative word — a view counter will now count a request that ends in a 301.
+    That is the deliberate trade: a redirect that overtakes an authorization is more
+    expensive than an action that runs once too often.
+
+### Fixed
+- **Documentation that described code other than the code that shipped.** Found by reading
+  the public surface out of the source and comparing it against every document that
+  describes it, so these are corrections rather than polish:
+  - The Boost skill printed a `polyslug:backfill` invocation that cannot run — the model
+    class is a required argument, not an option, and `--locale` was missing. It also
+    described `polyslug:doctor` without its resolution-gate report and left `redirect.status`
+    out of the config-key list; `polyslug:doctor`'s own description had the same omission.
+  - A failed slug write was documented as "rolled back". It is not: the write commits and
+    restores the demoted row in place, deliberately, so it never depends on a nested
+    savepoint. The promised outcome — the model keeps its previous slug — was always
+    correct. The exceptions reference also told readers to inspect `getPrevious()`, which is
+    always `null` here, because a lost race is a return value rather than a thrown error.
+  - `Sluggable`'s own docblocks, the text an IDE shows, described a narrower contract than
+    the code honors: `polyslugRouteKey()` returns the path alone on an `idLess` model, and
+    `polyslugUrls()` also filters on `polyslugIsRoutable()`.
+  - `reserved.from_routes` was the only config key with no inline comment, against that
+    file's own promise that every option carries one.
+
 ## [0.6.0] - 2026-07-31
 
 ### Added

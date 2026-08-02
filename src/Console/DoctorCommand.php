@@ -18,7 +18,7 @@ final class DoctorCommand extends Command
     protected $signature = 'polyslug:doctor';
 
     /** @var string */
-    protected $description = 'Diagnose the Polyslug setup: encoder config and the uniqueness-guaranteeing indexes.';
+    protected $description = 'Diagnose the Polyslug setup: encoder config, the uniqueness-guaranteeing indexes, and models that never narrowed their resolution gate.';
 
     public function handle(): int
     {

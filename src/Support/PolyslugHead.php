@@ -59,9 +59,12 @@ final class PolyslugHead
 
         // The alternates describe the OTHER language versions, which stay useful even on
         // a page this model may not be indexed under — so they are written first and
-        // unconditionally. hreflangLinks() resolves the set a second time; that is a few
-        // route() calls per render, accepted deliberately rather than reimplementing the
-        // trait's private x-default rule out here just to reuse $urls.
+        // unconditionally. hreflangLinks() resolves the set a SECOND time, and that is not
+        // free: measured on a three-locale model it is seven more database reads, not "a few
+        // route() calls". It is still the right trade against reimplementing the trait's
+        // private x-default rule out here just to reuse $urls — and eager-loading the `slugs`
+        // relation removes the cost entirely, because both passes then read the same loaded
+        // collection instead of querying.
         $head->alternates($model->hreflangLinks($urlUsing));
 
         // Say nothing about THIS locale's URL when the model is not routable in it. The

@@ -29,7 +29,13 @@ interface Sluggable
     /** The current slug for the given (or active) locale, or null if none exists yet. */
     public function currentSlug(?string $locale = null): ?string;
 
-    /** The route key "{slug}_{encodedId}" for the given (or active) locale. */
+    /**
+     * The route key for the given (or active) locale.
+     *
+     * "{slug}_{encodedId}" normally; for an idLess model it is the slug (or nested path)
+     * ALONE — no delimiter and no token. That is not an edge case to look up elsewhere:
+     * the shape of the value this returns depends on the model's configuration.
+     */
     public function polyslugRouteKey(?string $locale = null): string;
 
     /** The route key for an EXPLICIT locale — never reads the ambient app locale (for sitemaps, backfill, CLI, and locale-aware routing). */
@@ -71,7 +77,12 @@ interface Sluggable
     public function slugHistory(?string $locale = null): array;
 
     /**
-     * An absolute URL per locale that has a current slug, built by the resolver.
+     * An absolute URL per locale that has a current slug AND is routable, built by the
+     * resolver.
+     *
+     * The routability filter is part of the contract, not an implementation detail: a
+     * locale that polyslugIsRoutable() excludes is absent from this set, and therefore
+     * from the hreflang set and the sitemap built on top of it.
      *
      * @param  callable(string $locale, string $routeKey): string  $urlUsing
      * @return array<string, string>
