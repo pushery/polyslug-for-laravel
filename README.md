@@ -56,8 +56,9 @@ Rename the page and the old URL `301`s to the new one, by itself.
 ## Why Polyslug?
 
 - 🔒 **Leak-safe IDs by default.** URLs carry an encoded token, not `/pages/1523`. No
-  exposed row counts, no enumerable primary keys. The encoder is pluggable — Sqids,
-  UUID, ULID, or your own.
+  exposed row counts, no enumerable primary keys. The default encoder issues a random,
+  unguessable token per row — the only shipped encoder that makes that claim true end to
+  end. The choice is yours, though: Sqids, UUID, ULID, the raw key, or your own.
 - ♻️ **Self-healing URLs.** Rename freely. A stale slug on a `GET`/`HEAD` request is
   `301`-redirected to the current canonical URL automatically — no redirect tables to
   hand-maintain, no dead links, no lost link equity.
@@ -77,8 +78,10 @@ Rename the page and the old URL `301`s to the new one, by itself.
   `Head::polyslug($model)` fills in the canonical URL, the `hreflang` set, the Open Graph
   locales and a `robots` directive for models your visibility gate hides. Optional —
   Polyslug requires nothing beyond slim `illuminate/*` components either way.
-- ✅ **Serious about correctness.** PHPStan at `max`, 100% line + type coverage, and a
-  mutation-tested suite that runs on SQLite, PostgreSQL, **and** MySQL 8.4.
+- ✅ **Proven on the databases you deploy to.** The one-current-slug guarantee ships as a
+  functional partial unique index on PostgreSQL and SQLite and as generated key columns on
+  MySQL — two genuinely different mechanisms, and the suite proves both against real
+  PostgreSQL 18 and MySQL 8.4 servers rather than inferring one from the other.
 
 ## Documentation
 

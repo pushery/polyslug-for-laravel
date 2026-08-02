@@ -63,6 +63,7 @@
     },
     "scripts": {
         "test": "pest",
+        "test:affected": "pest --tia",
         "test:coverage": "pest --coverage --min=100",
         "test:type-coverage": "pest --type-coverage --min=100",
         "test:browser": "pest tests/Browser",
@@ -90,6 +91,7 @@
         }
     },
     "extra": {
+        "composer-exit-on-patch-failure": true,
         "laravel": {
             "providers": [
                 "Polyslug\\PolyslugServiceProvider"

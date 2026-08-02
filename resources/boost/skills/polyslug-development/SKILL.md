@@ -64,7 +64,8 @@ return a `PolyslugConfig` from `polyslug()` — it overrides the attribute.
 
 `encoder`, `sqids.{alphabet,min_length}`, `legacy_decoders` (previous encoders to try on a
 decode miss — encoder migration), `write.max_attempts`, `locale.{source,route_param,missing,fallback_locale}`,
-`reserved.{global,from_routes}`, `gone.{status,redirect_status}`, `analytics.enabled`,
+`reserved.{global,from_routes}`, `redirect.status` (the self-heal status, 301 by default),
+`gone.{status,redirect_status}`, `analytics.enabled`,
 `sitemap.types`, `types` (polymorphic registry).
 
 ## Leak-safe identity encoders
@@ -89,6 +90,27 @@ current canonical URL. For `/{locale}/...` routes, set `polyslug.locale.source =
 middleware compares the route's `{locale}` segment (not the ambient app locale) and avoids
 wrong-language 301 loops. `polyslugRouteKeyForLocale($locale)` builds a key for an explicit
 locale (safe in queues/CLI).
+
+**The application answers first.** The middleware works out what it would say, then runs the
+route action and replaces only a **successful** response. If the action refuses — `abort(403)`,
+`abort(404)`, or a returned non-2xx — that refusal reaches the client with no `Location` header.
+This matters because the header of a canonical redirect carries the resolved row's slug, i.e.
+usually its title, and a model on the open default `polyslugResolveQuery()` resolves any slug
+to any row. Ordering `->middleware('can:...')` after the macro does NOT come earlier — Laravel's
+priority sort leaves it behind `polyslug.canonical`. The cost: a request that ends in a redirect
+runs the action first and discards its response, so a view counter counts it.
+
+## Rendering lists: eager-load `slugs`
+
+```php
+$pages = Page::query()->with('slugs')->paginate();   // links now cost no query per row
+```
+
+`currentSlug()`, `polyslugRouteKey()`, `slugLocales()` and everything on top of them
+(`polyslugUrls()`, `hreflangLinks()`, `hreflangTags()`, `sitemapAlternateTags()`,
+`Head::polyslug()`) read the loaded collection. Writes never do — they always re-read the
+current row — and `slugHistory()` keeps querying, because history lives in the non-current
+rows a narrowed eager load would omit.
 
 ## Multi-tenant / draft isolation (required contract)
 
@@ -161,9 +183,13 @@ URL can never point at a different model. The slug must be unique per `(type, lo
 ## Other operations
 
 - Gone/supersede: `polyslugSupersededBy()` 301s to a successor; `polyslugIsGone()` returns a configurable 410.
-- Backfill: `php artisan polyslug:backfill [--queue] [--chunk=N]`.
+- Backfill: `php artisan polyslug:backfill "App\\Models\\Page" [--locale=de] [--queue] [--chunk=N]`.
+  The model class is a REQUIRED argument, not an option — the command backfills one
+  sluggable model at a time.
 - Analytics: `polyslug.analytics.enabled` fires a `SlugRedirected` event on each self-heal.
-- Diagnostics: `php artisan polyslug:doctor` checks the encoder config and the uniqueness indexes.
+- Diagnostics: `php artisan polyslug:doctor` checks the encoder config, the uniqueness
+  indexes, and reports every model that still resolves through the open default
+  `polyslugResolveQuery()` — the models on which any slug resolves to any row.
 
 ## Testing
 
