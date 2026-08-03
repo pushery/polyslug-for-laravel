@@ -79,6 +79,15 @@ Non-canonical tokens (wrong length, leading zeros, re-encoded alias) resolve to 
 each record has exactly one canonical URL. Migrate encoders without breaking links by listing
 the previous encoder in `polyslug.legacy_decoders`.
 
+A custom encoder that hits a store per key should also implement `BulkIdentityEncoder`
+(`encodeMany(list<int|string> $ids): array<string, string>` — a token per key, keyed by the
+**string** form of the id, so a caller can look one up with `(string) $model->getKey()`
+regardless of whether the key was an int) — a **second** interface
+extending `IdentityEncoder`, so an encoder you already wrote keeps satisfying its contract
+untouched. It is what makes `polyslugPreload()` do anything: without it the preload skips your
+encoder silently. Its result must equal encoding one key at a time — same tokens, same
+collision handling — so it optimizes round trips and never the guarantees.
+
 ## Routing & self-healing
 
 ```php
@@ -111,6 +120,10 @@ $pages = Page::query()->with('slugs')->paginate();   // links now cost no query 
 `Head::polyslug()`) read the loaded collection. Writes never do — they always re-read the
 current row — and `slugHistory()` keeps querying, because history lives in the non-current
 rows a narrowed eager load would omit.
+
+Add `Page::polyslugPreload($pages)` after the query to remove the remaining per-row token
+read of the default store-backed encoder. It is a no-op on Sqids/UUID/ULID/raw-key, so write
+it unconditionally — with both in place the page issues no query per row.
 
 ## Multi-tenant / draft isolation (required contract)
 

@@ -4,6 +4,28 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-03
+
+### Added
+- **`Model::polyslugPreload($models)`** warms the identity tokens for a whole set in one
+  round trip — the companion to eager-loading `slugs`. That removes the per-model *slug*
+  query; this removes the per-model *token* query, which is what the default
+  `RandomTokenEncoder` costs the first time each row is encoded. Together, a rendered list
+  of links issues no query per row at all:
+  ```php
+  $pages = Page::query()->with('slugs')->paginate();
+  Page::polyslugPreload($pages);
+  ```
+  It is a no-op on an encoder that derives its token from the key alone (Sqids, UUID, ULID,
+  the raw key), and deliberately a silent one — the point of an optimization hint is that you
+  can write it without first knowing which encoder is configured.
+- **`Polyslug\Contracts\BulkIdentityEncoder`**, implemented by `RandomTokenEncoder`. It is a
+  **second** interface extending `IdentityEncoder` rather than a new method on it, so an
+  encoder you wrote yourself keeps satisfying its contract untouched; callers fall back to
+  `encode()` per key when it is absent. Its result is required to be identical to encoding
+  one key at a time — same tokens, same collision handling — so it optimizes the round trips
+  and never the guarantees.
+
 ## [0.7.0] - 2026-08-03
 
 ### Added

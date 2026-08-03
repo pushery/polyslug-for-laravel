@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Polyslug\Contracts\BulkIdentityEncoder;
 use Polyslug\Contracts\IdentityEncoder;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Contracts\SlugGenerator;
@@ -60,6 +61,65 @@ trait HasPolyslug
     public function slugs(): MorphMany
     {
         return $this->morphMany(PolyslugSlug::class, 'sluggable');
+    }
+
+    /**
+     * Warm the identity tokens for a whole set of models in one round trip.
+     *
+     * The companion to eager-loading `slugs`. That removes the per-model SLUG query; this
+     * removes the per-model TOKEN query, which is what the database-backed default encoder
+     * costs on the first render of each row:
+     *
+     *     $pages = Page::query()->with('slugs')->paginate();
+     *     Page::polyslugPreload($pages);
+     *
+     * Ordinary work afterwards — route keys, hreflang sets, sitemaps — issues no further
+     * token queries, because the encoder is bound as a singleton and answers from the memo
+     * this call filled.
+     *
+     * A NO-OP WHERE THERE IS NOTHING TO WIN, and silently so, on purpose. Sqids, UUID, ULID
+     * and the raw key derive their token from the key alone; they do not implement
+     * BulkIdentityEncoder, and calling this with them costs one array walk. So a consumer
+     * may write it unconditionally without first knowing which encoder is configured — the
+     * point of an optimization hint is that it does not become a configuration question.
+     *
+     * Models are grouped by their RESOLVED encoder rather than assumed to share one:
+     * `#[Polyslug(encoder: ...)]` is per-model, so a mixed set would otherwise send keys to
+     * the wrong store.
+     *
+     * @param  iterable<mixed>  $models  narrowed by the instanceof below rather than by the
+     *                                   signature: typing this as iterable<Sluggable> makes
+     *                                   the guard provably dead on a class that uses the
+     *                                   trait WITHOUT implementing Sluggable — which is a
+     *                                   supported shape here, and PHPStan says so
+     */
+    public static function polyslugPreload(iterable $models): void
+    {
+        /** @var array<int, array{encoder: BulkIdentityEncoder, keys: list<string>}> $batches */
+        $batches = [];
+
+        foreach ($models as $model) {
+            // instanceof static, because the private helpers below are reachable only on an
+            // instance of this very class. A foreign Sluggable is skipped rather than
+            // fataling: preloading is a hint, and a hint must not be able to break a render.
+            if (! $model instanceof static) {
+                continue;
+            }
+
+            $encoder = $model->polyslugEncoder();
+
+            if (! $encoder instanceof BulkIdentityEncoder) {
+                continue;
+            }
+
+            $handle = spl_object_id($encoder);
+            $batches[$handle] ??= ['encoder' => $encoder, 'keys' => []];
+            $batches[$handle]['keys'][] = $model->polyslugKeyString();
+        }
+
+        foreach ($batches as $batch) {
+            $batch['encoder']->encodeMany($batch['keys']);
+        }
     }
 
     public function currentSlug(?string $locale = null): ?string
