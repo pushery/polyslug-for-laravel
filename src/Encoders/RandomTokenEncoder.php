@@ -8,7 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Override;
-use Polyslug\Contracts\IdentityEncoder;
+use Polyslug\Contracts\BulkIdentityEncoder;
 use Polyslug\Exceptions\CouldNotIssueToken;
 
 /**
@@ -23,7 +23,7 @@ use Polyslug\Exceptions\CouldNotIssueToken;
  * new records the moment of peak write contention. Both are inherent to storing the
  * mapping; the retry loop below is what makes them safe rather than fatal.
  */
-final class RandomTokenEncoder implements IdentityEncoder
+final class RandomTokenEncoder implements BulkIdentityEncoder
 {
     /**
      * How many times encode() re-attempts a claim before giving up.
@@ -104,6 +104,91 @@ final class RandomTokenEncoder implements IdentityEncoder
         }
 
         throw new CouldNotIssueToken($key, self::CLAIM_ATTEMPTS);
+    }
+
+    /**
+     * One SELECT for every key, one INSERT for the ones that are missing.
+     *
+     * This is the encoder the default configuration binds, and it is the only shipped one
+     * that reads the database — so on a rendered list it was the last per-row query left
+     * after the slug relation became eager-loadable.
+     *
+     * The single-key path is NOT bypassed, it is the fallback, and that is deliberate:
+     * every guarantee encode() makes about a lost race lives there. A key whose bulk
+     * insert was ignored — because a concurrent writer claimed the key, or because a
+     * random draw collided — is handed straight back to encode(), which re-reads and
+     * either adopts the winner's token or draws again. Reimplementing that recovery here
+     * would mean two places to keep correct, and the second one only runs under
+     * concurrency, where a mistake is least likely to be noticed.
+     *
+     * @param  list<int|string>  $ids
+     * @return array<string, string>
+     */
+    #[Override]
+    public function encodeMany(array $ids): array
+    {
+        $keys = [];
+
+        foreach ($ids as $id) {
+            $key = (string) $id;
+
+            // Deduplicated, because a caller passing the same key twice must not turn into
+            // two rows racing each other in the same INSERT.
+            $keys[$key] = true;
+        }
+
+        $wanted = array_keys($keys);
+        $missing = array_values(array_filter($wanted, fn (string $key): bool => ! isset($this->encoded[$key])));
+
+        if ($missing !== []) {
+            /** @var array<string, string> $rows */
+            $rows = DB::table('polyslug_tokens')
+                ->whereIn('key_value', $missing)
+                ->pluck('token', 'key_value')
+                ->all();
+
+            foreach ($rows as $key => $token) {
+                $this->encoded[(string) $key] = (string) $token;
+            }
+
+            $unclaimed = array_values(array_filter($missing, fn (string $key): bool => ! isset($this->encoded[$key])));
+
+            if ($unclaimed !== []) {
+                $now = Carbon::now();
+
+                DB::table('polyslug_tokens')->insertOrIgnore(array_map(
+                    fn (string $key): array => [
+                        'key_value' => $key,
+                        'token' => Str::lower(Str::random(16)),
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ],
+                    $unclaimed,
+                ));
+
+                // Read back rather than trusting the drafted tokens: insertOrIgnore reports
+                // how many rows landed, not WHICH — so a row rejected by either unique index
+                // is indistinguishable here from one that succeeded. The re-read settles it,
+                // and whatever is still absent goes through encode() and its retry loop.
+                /** @var array<string, string> $claimed */
+                $claimed = DB::table('polyslug_tokens')
+                    ->whereIn('key_value', $unclaimed)
+                    ->pluck('token', 'key_value')
+                    ->all();
+
+                foreach ($claimed as $key => $token) {
+                    $this->encoded[(string) $key] = (string) $token;
+                }
+            }
+        }
+
+        $encoded = [];
+
+        foreach ($wanted as $key) {
+            $encoded[$key] = $this->encoded[$key] ?? $this->encode($key);
+        }
+
+        return $encoded;
     }
 
     #[Override]
