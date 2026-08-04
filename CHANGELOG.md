@@ -4,6 +4,27 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-08-04
+
+### Changed
+- **The manifest no longer declares development-only patching.** Until now the package
+  applied a local patch to its own mutation runner: `pest-plugin-mutate` read the
+  `--coverage-php` report as an object, and `php-code-coverage` 14 writes an array, so a
+  mutation run died before the first mutant. That fix shipped upstream in
+  `pest-plugin-mutate` v5.0.1, so the patch is gone — together with
+  `cweagans/composer-patches`, which was required for that one patch and nothing else, its
+  `extra` keys and its plugin allowance.
+
+  A version floor replaces it: `pestphp/pest-plugin-mutate: ^5.0.1` in `require-dev`. The
+  patch guaranteed the behavior whatever version resolved; without it only a floor does,
+  and the plugin arrives through `pest` transitively, where nothing else would pin it.
+
+  **Nothing a consumer installs changes.** `require`, the source, the config, the
+  migrations and the published `resources` are byte-identical to 0.8.0; the entries that
+  moved are `require-dev` and one `extra` key, neither of which a consuming application
+  resolves. It is recorded here because the manifest is a shipped file, and a shipped file
+  that changes deserves a version rather than a silent amendment to the last one.
+
 ## [0.8.0] - 2026-08-03
 
 ### Added
