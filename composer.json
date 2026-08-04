@@ -28,7 +28,6 @@
         "sqids/sqids": "^0.5.0"
     },
     "require-dev": {
-        "cweagans/composer-patches": "^1.7",
         "larastan/larastan": "^3.0",
         "laravel/head": "^0.1.0",
         "laravel/pao": "^1.1",
@@ -39,6 +38,7 @@
         "pestphp/pest-plugin-browser": "^5.0",
         "pestphp/pest-plugin-evals": "^5.0",
         "pestphp/pest-plugin-laravel": "^5.0",
+        "pestphp/pest-plugin-mutate": "^5.0.1",
         "pestphp/pest-plugin-phpstan": "^5.0",
         "pestphp/pest-plugin-rector": "^5.0",
         "pestphp/pest-plugin-type-coverage": "^5.0",
@@ -91,7 +91,6 @@
         }
     },
     "extra": {
-        "composer-exit-on-patch-failure": true,
         "laravel": {
             "providers": [
                 "Polyslug\\PolyslugServiceProvider"
