@@ -4,6 +4,59 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-08-19
+
+### Changed
+- **A slug write asks the database for the current row once, not twice.** `polyslugSync()`
+  read it in order to decide *whether* to write, and `writeSlug()`'s first attempt read the
+  identical row again in order to decide *what* to write — back to back in one call stack,
+  with nothing in between that could change the answer. The first answer is now handed on.
+
+  Measured on SQLite, per model: creating one costs 1 relation read instead of 2, renaming
+  one costs 1 instead of 2, and `polyslug:backfill` costs 1 instead of 2 per row it fills.
+
+  **The retry loop is untouched, and that is the point of the three-state hand-off.**
+  `$known` is consumed by the first attempt only; every later pass re-reads, because a
+  retry exists precisely *because* another writer moved the row. "I looked and found
+  nothing" stays distinguishable from "I did not look", since the backfill path — rows with
+  no slug whose source has not changed — would otherwise get its duplicate read straight
+  back.
+
+  A save that leaves the slug source alone is unchanged at one read: it has to learn whether
+  a current row exists before it may skip the write, and no ordering of that test removes
+  the question.
+
+- **The manifest gains a process timeout and widens the profiler's directory scope.**
+  `config.process-timeout: 0` removes Composer's 300-second kill from every script it
+  starts, so a long-running script reports its own result instead of being cut off and
+  blamed on a timeout.
+
+  The scripts that need a profiler now run through `@php -d pcov.directory=.`. pcov reads
+  only within its configured directory scope, and with that scope left unset it never
+  reached `config/` or `database/`, so those directories looked untouched while being
+  fully exercised. Scope and source set are one pair: either without the other describes
+  something that is not the case.
+
+  **Nothing a consumer installs changes.** `require`, the source, the config, the
+  migrations and the published `resources` are byte-identical to 0.8.1; what moved is
+  `scripts`, `config` and one `require-dev` constraint, none of which a consuming
+  application resolves.
+
+- **`CONTRIBUTING.md` states the toolchain's PHP floor.** The package installs on 8.4.0, but
+  working on it needs **8.4.1** — Pest 5 pulls in `symfony/process`, which requires `>=8.4.1`.
+  On exactly 8.4.0 `composer install` fails naming `symfony/process` rather than Pest, which
+  sends people looking in the wrong place. Nothing about what the package requires changed.
+
+- **`laravel/head` is now developed against `^0.2.0`.** The optional companion released
+  0.2.0 (Inertia SSR gateway support, an Octane + Inertia fix, and a link-attribute
+  injection fix). Every arm of the bridge canary still passes against it — canonical,
+  the locale⇒URL alternates map with `x-default`, `hiddenFromRobots`, the named `locale`
+  argument on `og()`, `meta(property: true)` and the merge-rather-than-replace behavior of
+  repeated `alternates()` calls — so `src/Support/PolyslugHead.php` needed no re-fit. The
+  release adds capability on the transport side rather than the document side, so there is
+  nothing new for Polyslug to feed it. `laravel/head` remains a suggestion, never a runtime
+  requirement.
+
 ## [0.8.1] - 2026-08-04
 
 ### Changed

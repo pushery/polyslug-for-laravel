@@ -15,6 +15,14 @@ version and a minimal reproduction, and never paste secrets or credentials.
   `CHANGELOG.md` `## [Unreleased]` section.
 - Keep each commit focused.
 
+## Local requirements
+
+**PHP 8.4.1 or newer** to work on the package, even though the package itself installs
+on 8.4.0. The test toolchain raises the floor: Pest 5 pulls in `symfony/process`, which
+requires `>=8.4.1`. On exactly 8.4.0 `composer install` therefore fails with a message
+about `symfony/process` rather than about Pest, which sends people looking in the wrong
+place. Upgrade the patch version; nothing else is wrong.
+
 ## Quality bar
 
 This package holds itself to a strict quality bar — Laravel Pint, Larastan at `max`,
