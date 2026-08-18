@@ -206,11 +206,16 @@ trait HasPolyslug
 
         // fresh: a write decides against what is current NOW, never against a collection
         // loaded before this request touched anything.
-        if ($this->currentSlugRow($locale, fresh: true) !== null && ($config->immutable || ! $this->wasChanged($config->source))) {
+        $current = $this->currentSlugRow($locale, fresh: true);
+
+        if ($current !== null && ($config->immutable || ! $this->wasChanged($config->source))) {
             return;
         }
 
-        $this->writeSlug($locale, $this->polyslugSource($config), $config);
+        // Handing the row on is the whole point of naming it: writeSlug()'s first attempt
+        // asked the identical question again, in the same call stack, with nothing in
+        // between that could change the answer.
+        $this->writeSlug($locale, $this->polyslugSource($config), $config, known: $current);
     }
 
     public function setSlug(string $locale, ?string $source = null): void
@@ -336,7 +341,17 @@ trait HasPolyslug
         return new HtmlString(implode("\n", $tags));
     }
 
-    private function writeSlug(string $locale, string $source, PolyslugConfig $config): void
+    /**
+     * `$known` carries what the caller already established about the current row by reading it
+     * fresh in this same call stack. Three states, deliberately distinct: the row itself, `null`
+     * for "I looked and there is none", `false` for "I did not look". Collapsing the middle one
+     * into `false` would hand the duplicate read straight back to the path that issues the most
+     * of them — `polyslug:backfill` walks rows that have no slug and whose source has not
+     * changed, so `null` is its normal answer, not its edge case.
+     *
+     * @param  PolyslugSlug|false|null  $known  the caller's fresh answer, or false if it has none
+     */
+    private function writeSlug(string $locale, string $source, PolyslugConfig $config, PolyslugSlug|false|null $known = false): void
     {
         $scope = $this->polyslugScope($config);
         $attempts = $this->polyslugMaxWriteAttempts();
@@ -345,7 +360,13 @@ trait HasPolyslug
             // fresh, and this is the attempt that makes it non-negotiable: the loop re-asks
             // after a failed attempt precisely because another writer may have moved the row.
             // A cached collection would hand back the same superseded row on every pass.
-            $current = $this->currentSlugRow($locale, fresh: true);
+            //
+            // Only the FIRST pass may take the caller's answer, and only because that read
+            // happened microseconds ago with no write between. Every later pass exists
+            // BECAUSE the world moved, so reusing $known there would defeat the retry.
+            $current = $attempt === 1 && $known !== false
+                ? $known
+                : $this->currentSlugRow($locale, fresh: true);
 
             $desired = Container::getInstance()->make(SlugGenerator::class)->generate(
                 new SlugRequest(
