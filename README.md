@@ -9,9 +9,15 @@
 [![Latest Version](https://img.shields.io/packagist/v/pushery/polyslug-for-laravel.svg)](https://packagist.org/packages/pushery/polyslug-for-laravel)
 [![PHP Version](https://img.shields.io/packagist/dependency-v/pushery/polyslug-for-laravel/php.svg)](https://packagist.org/packages/pushery/polyslug-for-laravel)
 [![Laravel Versions](https://badge.laravel.cloud/badge/pushery/polyslug-for-laravel?style=flat)](https://packagist.org/packages/pushery/polyslug-for-laravel)
+[![License](https://img.shields.io/packagist/l/pushery/polyslug-for-laravel.svg)](LICENSE)
+
+[![Tests](https://img.shields.io/badge/tests-Pest%205-8BC34A.svg)](https://pestphp.com)
+![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)
+![Type Coverage](https://img.shields.io/badge/types-100%25-brightgreen.svg)
 [![PHPStan](https://img.shields.io/badge/PHPStan-max-blue.svg)](https://phpstan.org)
 [![Code Style](https://img.shields.io/badge/code%20style-pint-orange.svg)](https://laravel.com/docs/pint)
-[![License](https://img.shields.io/packagist/l/pushery/polyslug-for-laravel.svg)](LICENSE)
+![Databases](https://img.shields.io/badge/tested%20on-PostgreSQL%20%2B%20MySQL-336791.svg)
+![Mutation](https://img.shields.io/badge/mutation-%E2%89%A585%25-blueviolet.svg)
 
 **Polymorphic, multilingual routable identity for Eloquent.** Pretty URLs that are
 safe to expose, safe to rename, and correct across languages — with leak-free IDs,

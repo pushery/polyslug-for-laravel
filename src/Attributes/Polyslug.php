@@ -26,6 +26,7 @@ final class Polyslug
      * @param  string  $emptyFallback  When the source produces no slug (e.g. a CJK/emoji-only title): 'id-only' (default) stores an empty slug so the URL is just the encoded id and the save never fails; 'throw' raises CouldNotGenerateSlug.
      * @param  array<string, mixed>  $encoderOptions  Per-model SqidsEncoder options ('alphabet', 'min_length') giving this model its own token space. Ignored unless the effective encoder is SqidsEncoder.
      * @param  string  $unicode  Slug character set: 'ascii' (default) transliterates to ASCII; 'native' keeps Unicode letters/numbers (non-Latin markets), lower-cased at generation so the case-insensitive unique index behaves identically on PostgreSQL and SQLite.
+     * @param  bool  $reclaim  Only meaningful with idLess. false (default) keeps a retired slug reserved forever, so an old URL can never be handed to a different model. true releases it: another record may claim it, and the URL then serves the NEW owner. Use it ONLY when the name comes from a source that reassigns it anyway (a mirrored account, an external registry) — on app-owned slugs it turns a rename into a way to take over someone else's published URL. Rejected without idLess (MisconfiguredPolyslug), where it would silently do nothing.
      * @param  bool  $idLess  Drop the "_{encodedId}" suffix — the URL is the slug alone (/blog/hello-world). Resolution is then by slug: the current slug resolves directly, a superseded slug still resolves and 301s to the current one, and retired slugs stay reserved so an old URL can never point at a different model. The slug must be unique per (type, locale, scope).
      */
     public function __construct(
@@ -43,5 +44,6 @@ final class Polyslug
         public array $encoderOptions = [],
         public string $unicode = 'ascii',
         public bool $idLess = false,
+        public bool $reclaim = false,
     ) {}
 }
