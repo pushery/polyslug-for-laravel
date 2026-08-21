@@ -470,19 +470,47 @@ trait HasPolyslug
 
     /**
      * Resolve a slug-only URL by its slug: current slugs first (canonical), then
-     * superseded ones (the canonical middleware then 301s to the current URL). The
-     * resolve-query gate still applies, so a slug shared across scopes/tenants resolves
-     * to the one this request may see.
+     * superseded ones (the canonical middleware then 301s to the current URL).
+     *
+     * SCOPE IS THE CALLER'S TO NAME, and this docblock used to claim the opposite — that
+     * "the resolve-query gate still applies, so a slug shared across scopes resolves to the
+     * one this request may see". It does not, and the wrong half is which QUESTION the gate
+     * answers: it separates by what the environment says is visible (session, tenant,
+     * request context). A scope that lives in a path segment — `/@alice/toolkit` versus
+     * `/@bob/toolkit` — is an ARGUMENT of the resolution, not environment state, so it
+     * reaches neither this query nor the gate. Both rows may legally hold the slug, because
+     * the unique index is scope-bound too; the lookup then returns whichever sorts first.
+     *
+     * Override polyslugResolutionScope() to hand the scope over. With
+     * `polyslug.resolution.require_scope` enabled, a scope-bound model whose caller names
+     * no scope is REFUSED here instead of resolved across scopes — because the damage never
+     * came from the missing filter, it came from its absence looking exactly like a hit.
      */
     private function resolveBySlug(string $value): ?static
     {
         // Nested slug-only URLs carry the ancestor path; the model's own slug is the leaf.
         $slug = Str::afterLast($value, '/');
 
-        $ids = PolyslugSlug::query()
+        $config = $this->polyslugConfig();
+        $scope = $this->polyslugResolutionScope();
+
+        if ($scope === null && $config->scope !== [] && $this->polyslugRequiresResolutionScope()) {
+            return null;
+        }
+
+        $query = PolyslugSlug::query()
             ->where('sluggable_type', $this->getMorphClass())
             ->where('locale', $this->polyslugLocale())
-            ->whereRaw('lower(slug) = ?', [Str::lower($slug)])
+            ->whereRaw('lower(slug) = ?', [Str::lower($slug)]);
+
+        if ($scope !== null) {
+            $query->where('scope', $this->polyslugScopeKey(
+                $config,
+                static fn (string $column): mixed => $scope[$column] ?? null,
+            ));
+        }
+
+        $ids = $query
             ->orderByDesc('is_current')
             ->orderByDesc('id')
             ->pluck('sluggable_id')
@@ -497,6 +525,39 @@ trait HasPolyslug
         }
 
         return null;
+    }
+
+    /**
+     * The scope this resolution happens in, as `column => value` — or null when the caller
+     * cannot name one.
+     *
+     * Null is the default and keeps the historical behavior: no scope filter at all.
+     * Override it on a model whose scope lives in the URL rather than in the environment
+     * (a path segment, a subdomain, a header), and the slug lookup is then separated by
+     * exactly the key the write path stored — same columns, same builder, so the two
+     * cannot drift apart.
+     *
+     * A column the returned array omits contributes an empty value to the key, which is
+     * what a model with an unset scope attribute stores too. Naming a partial scope is
+     * therefore a real answer, not a half-answer.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function polyslugResolutionScope(): ?array
+    {
+        return null;
+    }
+
+    /**
+     * Whether a scope-bound model must be given a scope before a slug-only URL resolves.
+     *
+     * Off by default, and deliberately: switching it on refuses every scope-bound model
+     * whose seam is not yet implemented, which is correct but is not something an update
+     * may do silently to a consumer. Turn it on once the models that need it answer.
+     */
+    private function polyslugRequiresResolutionScope(): bool
+    {
+        return Container::getInstance()->make(ConfigRepository::class)->get('polyslug.resolution.require_scope') === true;
     }
 
     /**
@@ -718,10 +779,29 @@ trait HasPolyslug
 
     private function polyslugScope(PolyslugConfig $config): string
     {
+        return $this->polyslugScopeKey($config, fn (string $column): mixed => $this->getAttribute($column));
+    }
+
+    /**
+     * The stored scope key for a set of column values.
+     *
+     * ONE builder for both directions on purpose: the write path fills it from the model's
+     * own attributes, the read path from whatever the caller named. A key assembled in two
+     * places is a key that eventually disagrees with itself, and the disagreement would
+     * look like "no such slug".
+     *
+     * @param  callable(string): mixed  $valueFor
+     */
+    private function polyslugScopeKey(PolyslugConfig $config, callable $valueFor): string
+    {
         $parts = [];
 
         foreach ($config->scope as $column) {
-            $value = $this->getAttribute($column);
+            $value = $valueFor($column);
+
+            // The cast states the intent; it does not change the result. Concatenation coerces
+            // every scalar to the same string either way, so this is for the reader and the
+            // analyser rather than for the key.
             $parts[] = $column.':'.(is_scalar($value) ? (string) $value : '');
         }
 

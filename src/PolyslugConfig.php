@@ -36,12 +36,22 @@ final readonly class PolyslugConfig
         public array $encoderOptions = [],
         public string $unicode = 'ascii',
         public bool $idLess = false,
+        public bool $reclaim = false,
     ) {
         // An idLess URL is the slug alone, so an idLess model resolves BY its slug and the
         // slug must stay unique. `unique: false` (records may share a slug) is therefore only
         // valid for a non-idLess model, whose encoded id disambiguates.
         if ($this->idLess && ! $this->unique) {
             throw MisconfiguredPolyslug::idLessRequiresUnique();
+        }
+
+        // Rejected rather than ignored. On a non-idLess model a retired slug is ALREADY free
+        // to reuse — the encoded id disambiguates — so reclaim would change nothing at all.
+        // A flag that silently does nothing is worse than one that is refused: whoever set it
+        // believes a guarantee has been relaxed, and would only find out otherwise from a
+        // collision suffix appearing where they expected a handover.
+        if ($this->reclaim && ! $this->idLess) {
+            throw MisconfiguredPolyslug::reclaimRequiresIdLess();
         }
     }
 
@@ -62,6 +72,7 @@ final readonly class PolyslugConfig
             encoderOptions: $attribute->encoderOptions,
             unicode: $attribute->unicode,
             idLess: $attribute->idLess,
+            reclaim: $attribute->reclaim,
         );
     }
 }

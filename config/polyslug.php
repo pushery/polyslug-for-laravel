@@ -201,6 +201,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Slug-only resolution: require a scope
+    |--------------------------------------------------------------------------
+    |
+    | A slug-only URL carries no id, so the slug alone has to identify the record.
+    | On a model scoped with #[Polyslug(scope: ...)] that is only true WITHIN a
+    | scope: the unique index is scope-bound, so /@alice/toolkit and /@bob/toolkit
+    | may both hold "toolkit" legitimately.
+    |
+    | The resolve-query gate does not separate them. It answers a different
+    | question — what the ENVIRONMENT (session, tenant, request context) says is
+    | visible — while a scope in a path segment is an argument of the resolution.
+    | Hand it over by overriding polyslugResolutionScope() on the model.
+    |
+    | Turn this on and a scoped model whose caller names no scope is REFUSED
+    | instead of resolving to whichever row sorts first. Off by default because
+    | switching it on refuses every scoped model that does not answer yet — the
+    | right end state, but not something an update should do to you silently.
+    |
+    */
+
+    'resolution' => [
+        'require_scope' => false,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Polymorphic type registry
     |--------------------------------------------------------------------------
     |

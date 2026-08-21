@@ -114,7 +114,13 @@ final class DefaultSlugGenerator implements SlugGenerator
         // For id-based models only current slugs collide (a superseded slug is free to
         // reuse — the id still disambiguates). Slug-only models must also reserve retired
         // slugs, or an old URL could resolve to a different model.
-        if (! $config->idLess) {
+        //
+        // `reclaim: true` opts out of exactly that reservation, and only a slug-only model
+        // may set it. It is for names the application does not own — a mirrored account, an
+        // external registry — where the source has already handed the name to somebody else
+        // and reserving it makes the mirror disagree with what it mirrors. The retired row
+        // stays put and keeps serving history; it simply no longer blocks the name.
+        if (! $config->idLess || $config->reclaim) {
             $query->where('is_current', true);
         }
 

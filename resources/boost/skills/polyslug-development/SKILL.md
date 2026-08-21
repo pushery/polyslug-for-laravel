@@ -56,6 +56,7 @@ class Page extends Model implements Sluggable
 | `encoderOptions` | `[]` | Per-model `SqidsEncoder` options (`alphabet`, `min_length`) — a dedicated token space. Ignored unless the effective encoder is Sqids. |
 | `unicode` | `'ascii'` | `native` keeps Unicode letters/numbers (non-Latin markets); slugs are lower-cased at generation so the case-insensitive unique index is consistent on PostgreSQL and SQLite. |
 | `idLess` | `false` | Drop the `_{encodedId}` suffix — the URL is the slug alone; resolution is by slug (see Slug-only). |
+| `reclaim` | `false` | Only with `idLess`. Releases a retired slug so another record may claim the name. Refused without `idLess`. |
 
 For dynamic (per-tenant/runtime) config, implement `Polyslug\Contracts\ConfiguresPolyslug` and
 return a `PolyslugConfig` from `polyslug()` — it overrides the attribute.
@@ -187,6 +188,19 @@ rename/reparent self-heals via the canonical redirect (no cascade). Route with a
 directly, a superseded slug 301s to the current URL, and retired slugs stay reserved so an old
 URL can never point at a different model. The slug must be unique per `(type, locale, scope)`.
 
+**Retired slugs stay reserved** — a later record asking for a freed name gets a suffix. Set
+`reclaim: true` (idLess only) to release it instead: the newcomer takes the name and the URL
+serves the new owner. Use it ONLY when an external source already reassigns the name (a
+mirror, an upstream registry); on app-owned slugs it turns a rename into a way to take over
+somebody else's published URL.
+
+**On a scoped model the lookup needs the scope handed to it.** Uniqueness is per scope, so two
+records may hold the same slug (`/@alice/toolkit`, `/@bob/toolkit`); a slug-only read has only
+the string. Override `polyslugResolutionScope(): ?array` to return `['owner_id' => …]` — the
+lookup is then filtered by the key the write path stored. Set
+`polyslug.resolution.require_scope` to refuse a scoped lookup that names no scope instead of
+returning whichever row sorts first.
+
 ## Sitemaps & short links
 
 - Bind `Polyslug\Contracts\PolyslugUrlResolver` (model+locale → absolute URL); it feeds both:
@@ -219,6 +233,7 @@ $this->assertSlugNotResolvable(Page::class, 'bad_token');
 
 - Add `polyslug.canonical` (or the `Route::polyslug` macro) or renames won't self-heal.
 - Without `polyslugResolveQuery()`, a shared slug can resolve across tenants — always scope it in multi-tenant apps.
+- **The gate is not the scope.** `polyslugResolveQuery()` filters by what the ENVIRONMENT says is visible (session, tenant). A scope living in the URL (`/@owner/repo`) never reaches it, so on a slug-only model it separates nothing — use `polyslugResolutionScope()` for that.
 - The slug never identifies the model; binding uses the encoded id. A wrong slug still resolves, then redirects.
 - `idLess` requires globally-unique slugs per scope; retired slugs stay reserved by design.
 - Native Unicode mode assumes NFC-normalized input.

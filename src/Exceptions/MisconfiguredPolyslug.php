@@ -17,6 +17,15 @@ use RuntimeException;
  */
 final class MisconfiguredPolyslug extends RuntimeException
 {
+    public static function reclaimRequiresIdLess(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot set `reclaim: true` without `idLess: true`: on a model whose '
+            .'URL carries an encoded id, a retired slug is already free to reuse, so reclaim would '
+            .'change nothing. Add `idLess: true` if the URL is the slug alone, or drop `reclaim`.'
+        );
+    }
+
     public static function idLessRequiresUnique(): self
     {
         return new self(

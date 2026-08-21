@@ -4,6 +4,62 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-21
+
+### Added
+- **`reclaim: true` releases a retired slug-only name instead of reserving it forever.** By
+  default a retired slug stays reserved, so renaming `api` to `api-v2` leaves `api` blocked
+  and a later record asking for it gets `api-2`. That is the right guarantee for a name the
+  application owns — without it, a rename becomes a way to take over a URL somebody else
+  published.
+
+  It is the wrong guarantee for a name the application only mirrors. When an external source
+  reassigns the name, reserving it makes the canonical URL disagree with the thing it
+  mirrors. With `reclaim`, the newcomer takes the name, the previous owner keeps the name it
+  moved to, and the URL serves the new owner; the retired row stays as history.
+
+  Off by default, and refused outright without `idLess` — on a model whose URL carries an
+  encoded id a retired slug is already free to reuse, so the flag would silently do nothing.
+
+- **The badge row is held to what the gate enforces, by a test.** Every number a static
+  badge claims is derived from `composer.json` and compared against it: the coverage and
+  type-coverage floors, the mutation floor, and the required test-framework major. Lower a
+  floor without editing the badge — or edit the badge without moving the floor — and the
+  suite goes red. The optional badges are checked in both directions, so the README can
+  neither advertise a capability the repository lacks nor stay silent about one it has.
+
+### Changed
+- **The README badge row follows the shared canon: identity above, quality below.** The
+  identity row (version, PHP, Laravel, license) is now sourced entirely from Packagist, and
+  a second row states what the quality gate actually enforces — test framework, line
+  coverage, type coverage, static-analysis level and code style — followed by the two claims
+  this package can back up: that the suite runs against real PostgreSQL and MySQL servers,
+  and the mutation floor it holds.
+
+  A hardcoded badge is a fact frozen at the moment someone typed it. The license badge in
+  particular now reads the license from Packagist, so it cannot go on asserting MIT after
+  the license changes.
+
+### Fixed
+- **A slug-only URL on a scoped model resolved across scopes.** The write path separates by
+  `scope`; the lookup did not, so on a model scoped per owner or tenant two records could
+  legitimately hold the same slug and `/@alice/toolkit` could resolve to Bob's record. The
+  resolution gate does not cover this — it filters by what the environment says is visible,
+  while a scope sitting in a path segment is an argument of the resolution, and a gate that
+  never receives it cannot separate by it.
+
+  Models hand the scope over by overriding `polyslugResolutionScope(): ?array`, and the
+  lookup is then filtered by exactly the key the write path stored — one builder for both
+  directions, so the two cannot drift.
+
+  **The default is unchanged**: a model that does not answer resolves exactly as before. Set
+  `polyslug.resolution.require_scope` to refuse a scoped slug-only lookup that names no scope
+  rather than returning whichever row sorts first. The damage never came from the missing
+  filter but from its absence looking exactly like a hit.
+
+  The docblock on that method claimed the opposite outcome, and the shipped Boost skill said
+  the gate covered it; both are corrected.
+
 ## [0.8.2] - 2026-08-19
 
 ### Changed
@@ -338,7 +394,7 @@ they are visited — no flag day, no broken bookmarks.
 - Combining `idLess: true` with `unique: false` is now rejected at configuration time with the new `Polyslug\Exceptions\MisconfiguredPolyslug`. An idLess URL is the slug alone, so an idLess model resolves *by* its slug and the slug must stay unique.
 
 ### Removed
-- `Polyslug\Exceptions\SlugCollision` (added in v0.1.4). With `unique: false` now allowing shared slugs for non-idLess models, there is no collision to fail on — the v0.1.4 fail-fast was the honest interim; this is the full behaviour.
+- `Polyslug\Exceptions\SlugCollision` (added in v0.1.4). With `unique: false` now allowing shared slugs for non-idLess models, there is no collision to fail on — the v0.1.4 fail-fast was the honest interim; this is the full behavior.
 
 ## [0.1.4] - 2026-07-11
 
