@@ -26,6 +26,16 @@ final class MisconfiguredPolyslug extends RuntimeException
         );
     }
 
+    public static function reclaimActiveRequiresReclaim(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot set `reclaimActive: true` without `reclaim: true`: '
+            .'reclaimActive widens reclaim from retired names to a name another record still '
+            .'holds, so on its own it would take the name from a live holder and then be refused '
+            .'by that holder\'s own retired rows. Add `reclaim: true`, or drop `reclaimActive`.'
+        );
+    }
+
     public static function idLessRequiresUnique(): self
     {
         return new self(

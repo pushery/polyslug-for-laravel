@@ -53,6 +53,18 @@ interface Sluggable
     /** Resolve this model type by primary key THROUGH the resolution gate (polyslugResolveQuery), so tenant/visibility scoping applies on every path — including /go. */
     public function polyslugResolveByKey(mixed $key): ?self;
 
+    /**
+     * Re-resolve THIS instance through its own resolution gate: the same row when the
+     * caller may see it, null when it may not.
+     *
+     * For a model that arrived from route binding this is a no-op — binding already went
+     * through the gate. It exists for a model that did NOT arrive that way, and the one
+     * the package itself hands around is the successor from polyslugSupersededBy(): that
+     * comes from a return value, not from a resolution, so nothing has asked whether the
+     * requester may see it before its slug is rendered into a Location header.
+     */
+    public function polyslugResolveSelf(): ?self;
+
     /** Generate or refresh the current slug from the model's source (idempotent). */
     public function polyslugSync(?string $locale = null): void;
 

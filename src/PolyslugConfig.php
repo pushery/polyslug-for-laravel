@@ -37,6 +37,7 @@ final readonly class PolyslugConfig
         public string $unicode = 'ascii',
         public bool $idLess = false,
         public bool $reclaim = false,
+        public bool $reclaimActive = false,
     ) {
         // An idLess URL is the slug alone, so an idLess model resolves BY its slug and the
         // slug must stay unique. `unique: false` (records may share a slug) is therefore only
@@ -52,6 +53,14 @@ final readonly class PolyslugConfig
         // collision suffix appearing where they expected a handover.
         if ($this->reclaim && ! $this->idLess) {
             throw MisconfiguredPolyslug::reclaimRequiresIdLess();
+        }
+
+        // Refused for the same reason, one step further out. `reclaimActive` widens `reclaim`
+        // from retired names to actively held ones; without `reclaim` the retired rows would
+        // still block, so a takeover would succeed against a live holder and then be refused
+        // by that holder's own history — the least explicable half-behavior of the three.
+        if ($this->reclaimActive && ! $this->reclaim) {
+            throw MisconfiguredPolyslug::reclaimActiveRequiresReclaim();
         }
     }
 
@@ -73,6 +82,7 @@ final readonly class PolyslugConfig
             unicode: $attribute->unicode,
             idLess: $attribute->idLess,
             reclaim: $attribute->reclaim,
+            reclaimActive: $attribute->reclaimActive,
         );
     }
 }

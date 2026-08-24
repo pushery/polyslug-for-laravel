@@ -28,7 +28,7 @@
         "sqids/sqids": "^0.5.0"
     },
     "require-dev": {
-        "larastan/larastan": "^3.0",
+        "larastan/larastan": "3.10.0",
         "laravel/head": "^0.2.0",
         "laravel/pao": "^1.1",
         "laravel/pint": "^1.0",
@@ -39,11 +39,11 @@
         "pestphp/pest-plugin-evals": "^5.0",
         "pestphp/pest-plugin-laravel": "^5.0",
         "pestphp/pest-plugin-mutate": "^5.0.1",
-        "pestphp/pest-plugin-phpstan": "^5.0",
+        "pestphp/pest-plugin-phpstan": "5.1.0",
         "pestphp/pest-plugin-rector": "^5.0",
         "pestphp/pest-plugin-type-coverage": "^5.0",
-        "rector/rector": "^2.0",
-        "spaze/phpstan-disallowed-calls": "^4.12"
+        "rector/rector": "2.6.3",
+        "spaze/phpstan-disallowed-calls": "4.14.0"
     },
     "suggest": {
         "laravel/head": "Lets a Polyslug model describe its own <head>: Head::polyslug($model) writes the canonical URL, the reciprocal hreflang set, the Open Graph locale set and the robots directive from the model's own slug data."
