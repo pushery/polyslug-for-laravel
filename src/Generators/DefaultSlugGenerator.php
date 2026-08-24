@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace Polyslug\Generators;
 
-use Illuminate\Container\Container;
-use Illuminate\Contracts\Config\Repository as ConfigRepository;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Str;
 use Override;
 use Polyslug\Contracts\SlugGenerator;
 use Polyslug\Exceptions\CouldNotGenerateSlug;
 use Polyslug\Models\PolyslugSlug;
 use Polyslug\PolyslugConfig;
+use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
 
 final class DefaultSlugGenerator implements SlugGenerator
@@ -86,7 +84,11 @@ final class DefaultSlugGenerator implements SlugGenerator
     {
         $lowerSlug = Str::lower($slug);
 
-        foreach ($this->reservedWords($config) as $reserved) {
+        // The model's own list when the trait resolved one, the inherited list otherwise. A
+        // model that filters or clears its reserved words does so through
+        // polyslugReservedWords(), and by the time the request arrives here that answer is
+        // already baked in.
+        foreach ($request->reserved ?? ReservedWords::inherited($config) as $reserved) {
             if (Str::lower($reserved) === $lowerSlug) {
                 return true;
             }
@@ -120,6 +122,18 @@ final class DefaultSlugGenerator implements SlugGenerator
         // external registry — where the source has already handed the name to somebody else
         // and reserving it makes the mirror disagree with what it mirrors. The retired row
         // stays put and keeps serving history; it simply no longer blocks the name.
+        // `reclaimActive` goes one step further: the name is taken from whoever holds it, so
+        // NOTHING in the store is a collision and no counter suffix is ever appended. The
+        // handover itself is the write path's job (it retires the holder's row inside the same
+        // transaction as the insert); all that is decided here is that the generator must not
+        // steer around the name first. Returning early rather than dropping the is_current
+        // filter, because with the filter dropped a RETIRED row of another model would still
+        // read as a collision and the suffix would come back for exactly the case reclaim exists
+        // to serve.
+        if ($config->reclaimActive) {
+            return false;
+        }
+
         if (! $config->idLess || $config->reclaim) {
             $query->where('is_current', true);
         }
@@ -129,43 +143,5 @@ final class DefaultSlugGenerator implements SlugGenerator
         }
 
         return $query->exists();
-    }
-
-    /**
-     * The per-model reserved words plus the app-wide polyslug.reserved.global list.
-     *
-     * @return list<string>
-     */
-    private function reservedWords(PolyslugConfig $config): array
-    {
-        $global = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.reserved.global', []);
-        $reserved = array_merge($config->reserved, is_array($global) ? array_values(array_filter($global, is_string(...))) : []);
-
-        if (Container::getInstance()->make(ConfigRepository::class)->get('polyslug.reserved.from_routes') === true) {
-            return array_merge($reserved, $this->registeredRoutePaths());
-        }
-
-        return $reserved;
-    }
-
-    /**
-     * The static first segment of every registered route, so a generated slug can never
-     * shadow a real route (e.g. /login, /admin) when polyslug.reserved.from_routes is on.
-     *
-     * @return list<string>
-     */
-    private function registeredRoutePaths(): array
-    {
-        $paths = [];
-
-        foreach (Container::getInstance()->make(Router::class)->getRoutes()->getRoutes() as $route) {
-            $first = explode('/', $route->uri())[0];
-
-            if ($first !== '' && ! str_contains($first, '{')) {
-                $paths[] = $first;
-            }
-        }
-
-        return array_values(array_unique($paths));
     }
 }

@@ -22,6 +22,7 @@ use Polyslug\Contracts\Sluggable;
 use Polyslug\Contracts\SlugGenerator;
 use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Events\SlugChanged;
+use Polyslug\Events\SlugReclaimed;
 use Polyslug\Exceptions\CouldNotWriteSlug;
 use Polyslug\Models\PolyslugShortLink;
 use Polyslug\Models\PolyslugSlug;
@@ -29,6 +30,7 @@ use Polyslug\Polyslug;
 use Polyslug\PolyslugConfig;
 use Polyslug\PolyslugConfigResolver;
 use Polyslug\Support\DeletionState;
+use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
 
 /**
@@ -375,6 +377,10 @@ trait HasPolyslug
                     locale: $locale,
                     scope: $scope,
                     exceptId: $this->polyslugKeyString(),
+                    // Resolved HERE rather than in the generator, because only the model can
+                    // answer it: the seam is the model's, and a generator receives a request,
+                    // not a record.
+                    reserved: $this->polyslugReservedWords(ReservedWords::inherited($config)),
                 ),
                 $config,
             );
@@ -391,7 +397,16 @@ trait HasPolyslug
             // on every engine — MySQL's savepoint rollback is unreliable once DDL has implicitly
             // committed the outer transaction. Exhausting the attempts throws outside any
             // transaction, leaving the original current slug untouched.
-            $inserted = DB::transaction(function () use ($current, $locale, $scope, $desired, $config): int {
+            $displaced = [];
+
+            $inserted = DB::transaction(function () use ($current, $locale, $scope, $desired, $config, &$displaced): int {
+                // The takeover belongs INSIDE this transaction, next to the insert it makes room
+                // for. Retiring the holder first and inserting afterwards would leave the name
+                // owned by nobody if the insert then lost a race.
+                if ($config->reclaimActive) {
+                    $displaced = $this->polyslugRetireCurrentHolders($desired, $locale, $scope);
+                }
+
                 $current?->update(['is_current' => false]);
 
                 $inserted = PolyslugSlug::query()->insertOrIgnore([
@@ -411,19 +426,98 @@ trait HasPolyslug
 
                 if ($inserted === 0) {
                     $current?->update(['is_current' => true]);
+
+                    // WHAT THIS ATTEMPT RETIRED STAYS RETIRED, and that is not an oversight
+                    // beside the restore above — it is the only correct answer here.
+                    //
+                    // This branch is reached because the insert lost a race, and under
+                    // reclaimActive the only thing that can beat it is another writer committing
+                    // this exact name. So by the time we get here somebody else holds it.
+                    // Re-asserting the retired claim would collide with current_unique exactly
+                    // as our insert just did, and throw out of a transaction this write never
+                    // rolls back.
+                    //
+                    // Nothing is left ownerless either, which is the property the restore would
+                    // have been protecting: the rival owns the name, and the next attempt takes
+                    // it from them the same way this one took it from the previous owner. An
+                    // earlier version restored the rows conditionally, guarded by "unless a rival
+                    // holds it" — the guard was always true, so the restore was a line no run
+                    // could reach.
+                    $displaced = [];
                 }
 
                 return $inserted;
             });
 
             if ($inserted > 0) {
-                Container::getInstance()->make(Dispatcher::class)->dispatch(new SlugChanged($this, $locale, $desired, $current?->slug));
+                $dispatcher = Container::getInstance()->make(Dispatcher::class);
+
+                // Announced only after the transaction committed, and only for the attempt that
+                // actually landed: a listener that reacts by re-syncing the displaced record must
+                // not run against a handover that was rolled back.
+                foreach ($displaced as $row) {
+                    $dispatcher->dispatch(new SlugReclaimed(
+                        $this,
+                        $locale,
+                        $desired,
+                        (string) $row->sluggable_type,
+                        (string) $row->sluggable_id,
+                    ));
+                }
+
+                $dispatcher->dispatch(new SlugChanged($this, $locale, $desired, $current?->slug));
 
                 return;
             }
         }
 
         throw new CouldNotWriteSlug($this->getMorphClass(), $source);
+    }
+
+    /**
+     * Retire every OTHER record's current row for this exact name, and hand the rows back so
+     * the caller can restore them if its own insert then loses a race.
+     *
+     * Scoped exactly like the uniqueness probe it complements — same type, locale, scope,
+     * enforce_unique and case-folded slug — because the rows it must clear are precisely the
+     * rows the current_unique index would otherwise refuse the insert over. A wider net would
+     * retire a name nobody was competing for.
+     *
+     * @return list<PolyslugSlug>
+     */
+    private function polyslugRetireCurrentHolders(string $slug, string $locale, string $scope): array
+    {
+        /** @var list<PolyslugSlug> $rows */
+        $rows = $this->polyslugRivalHolders($slug, $locale, $scope)->get()->all();
+
+        foreach ($rows as $row) {
+            $row->update(['is_current' => false]);
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Rows of OTHER records that currently hold this exact name.
+     *
+     * Named rather than inlined into its one caller, because the SCOPING is the subtle part and
+     * this is where it is stated: same type, locale, scope, enforce_unique and case-folded slug
+     * as the uniqueness probe in DefaultSlugGenerator — which is precisely the set
+     * current_unique covers. Widen it and the takeover retires a name nobody was competing for;
+     * narrow it and the insert is refused by a row the retire did not clear.
+     *
+     * @return Builder<PolyslugSlug>
+     */
+    private function polyslugRivalHolders(string $slug, string $locale, string $scope): Builder
+    {
+        return PolyslugSlug::query()
+            ->where('sluggable_type', $this->getMorphClass())
+            ->where('locale', $locale)
+            ->where('scope', $scope)
+            ->where('is_current', true)
+            ->where('enforce_unique', true)
+            ->where('sluggable_id', '!=', $this->polyslugKeyString())
+            ->whereRaw('lower(slug) = ?', [Str::lower($slug)]);
     }
 
     private function polyslugMaxWriteAttempts(): int
@@ -466,6 +560,18 @@ trait HasPolyslug
     public function polyslugResolveByKey(mixed $key): ?static
     {
         return $this->polyslugResolveQuery($this->newQuery())->whereKey($key)->first();
+    }
+
+    /**
+     * Re-resolve this instance through its own resolution gate.
+     *
+     * One query, and it is the same one route binding already paid for — which is why this
+     * is never called on a bound model. It is for a model the package obtained some other
+     * way and is about to disclose something about.
+     */
+    public function polyslugResolveSelf(): ?static
+    {
+        return $this->polyslugResolveByKey($this->getKey());
     }
 
     /**
@@ -546,6 +652,32 @@ trait HasPolyslug
     public function polyslugResolutionScope(): ?array
     {
         return null;
+    }
+
+    /**
+     * The reserved words this model's slugs must avoid, given everything it inherits.
+     *
+     * The inherited list is the model's own `#[Polyslug(reserved: [...])]`, plus
+     * `polyslug.reserved.global`, plus — when `polyslug.reserved.from_routes` is on — the
+     * first segment of every registered route. Returning it unchanged is the default and
+     * keeps the historical behavior.
+     *
+     * IT COULD ONLY EVER ADD, AND THAT IS WHY THIS EXISTS. For a model that sits behind a
+     * prefix by construction — `/@{owner}/{repo}` — a slug can never shadow a route, because
+     * the `@` separates the namespaces completely. Every reservation there is a false
+     * positive, and it fails SILENTLY: the generator appends a counter suffix rather than
+     * refusing, so a legitimately named record becomes `api-2`. For externally assigned
+     * identifiers `api`, `docs`, `demo` and `media` are not the edge, they are the middle.
+     *
+     * Filter, replace or extend — returning `[]` opts out entirely. The alternative was
+     * rebinding SlugGenerator, i.e. rebuilding the collision core to be rid of a list.
+     *
+     * @param  list<string>  $inherited
+     * @return list<string>
+     */
+    public function polyslugReservedWords(array $inherited): array
+    {
+        return $inherited;
     }
 
     /**

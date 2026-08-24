@@ -183,6 +183,31 @@ final class EnsureCanonicalSlug
         return false;
     }
 
+    /**
+     * THE SUCCESSOR GOES THROUGH THE GATE TOO, and that is not the same property 0.7.0 fixed.
+     *
+     * 0.7.0 reversed the middleware so a canonical redirect can no longer overtake the
+     * application's authorization. That fixed the TIMING. It did not fix WHOSE row ends up in
+     * the Location header, and for a supersede redirect those are two different rows.
+     *
+     * $value is gated: route binding resolved it through polyslugResolveQuery(), and the
+     * application then answered 2xx for it. Neither holds for the successor. It arrives as a
+     * return value from polyslugSupersededBy(), not from a resolution, and its route key —
+     * usually its title — was rendered into a 301 without anyone asking whether the requester
+     * may see it. A consumer whose gate is closed and whose action authorizes correctly still
+     * leaked a foreign row's title, one hop further out than the original finding.
+     *
+     * Pushing the check into the consumer's polyslugSupersededBy() was rejected for the reason
+     * 0.7.0 gave for the resolution gate: the method is named supersededBy, not
+     * supersededByIfVisible, and a security property does not belong in a method whose
+     * signature does not hint at it. Deferring the answer is the only fix that asks the
+     * consumer for nothing.
+     *
+     * An invisible successor makes THIS PARAMETER produce no redirect — the loop simply moves
+     * on, exactly as it does for a parameter that was never superseded. The application's own
+     * response is then handed back untouched, and the self-heal check downstream still runs
+     * against the model the request legitimately holds.
+     */
     private function supersededRedirect(Route $route, string $locale): ?Response
     {
         foreach ($route->parameters() as $name => $value) {
@@ -192,12 +217,22 @@ final class EnsureCanonicalSlug
 
             $successor = $value->polyslugSupersededBy();
 
-            if ($successor instanceof Sluggable) {
-                return Container::getInstance()->make(Redirector::class)->to(
-                    $this->successorUrl($route, $name, $successor, $locale),
-                    $this->configuredStatus('polyslug.gone.redirect_status', 301),
-                );
+            if (! $successor instanceof Sluggable) {
+                continue;
             }
+
+            // Resolved rather than merely checked: the URL is then built from the row the gate
+            // returned, not from the instance the model handed over.
+            $visible = $successor->polyslugResolveSelf();
+
+            if (! $visible instanceof Sluggable) {
+                continue;
+            }
+
+            return Container::getInstance()->make(Redirector::class)->to(
+                $this->successorUrl($route, $name, $visible, $locale),
+                $this->configuredStatus('polyslug.gone.redirect_status', 301),
+            );
         }
 
         return null;

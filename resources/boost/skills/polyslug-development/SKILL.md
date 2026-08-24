@@ -48,7 +48,7 @@ class Page extends Model implements Sluggable
 | `maxLength` | `null` | Trim to at most N characters (never mid-separator). |
 | `unique` | `true` | Append `-2`, `-3`, … on a collision. |
 | `scope` | `null` | Column(s) that scope uniqueness (e.g. `tenant_id`, `parent_id`). |
-| `reserved` | `[]` | Slugs that may never be assigned. |
+| `reserved` | `[]` | Slugs that may never be assigned. Override `polyslugReservedWords(array $inherited): array` on the model to FILTER, replace or clear everything it inherits (own list + `reserved.global` + route-derived words); returning `[]` opts out entirely. Needed for a model behind a prefix like `/@owner/repo`, where a slug cannot shadow a route and every reservation is a false positive that silently becomes `api-2`. |
 | `immutable` | `false` | Freeze the slug — never regenerate on source change. |
 | `encoder` | `null` | Per-model `IdentityEncoder` class overriding the global one. |
 | `onDelete` | `'keep'` | On soft-delete: `keep` reserves the slug; `release` frees it. Hard/force delete always cascades slug rows. |
@@ -57,6 +57,7 @@ class Page extends Model implements Sluggable
 | `unicode` | `'ascii'` | `native` keeps Unicode letters/numbers (non-Latin markets); slugs are lower-cased at generation so the case-insensitive unique index is consistent on PostgreSQL and SQLite. |
 | `idLess` | `false` | Drop the `_{encodedId}` suffix — the URL is the slug alone; resolution is by slug (see Slug-only). |
 | `reclaim` | `false` | Only with `idLess`. Releases a retired slug so another record may claim the name. Refused without `idLess`. |
+| `reclaimActive` | `false` | Only with `reclaim`. Also takes a name another record still holds ACTIVELY: the holder's row is retired and the newcomer gets the name. The displaced record is then left with NO current slug until its own source is synced — listen for `SlugReclaimed`. Refused without `reclaim`. |
 
 For dynamic (per-tenant/runtime) config, implement `Polyslug\Contracts\ConfiguresPolyslug` and
 return a `PolyslugConfig` from `polyslug()` — it overrides the attribute.
@@ -194,6 +195,16 @@ serves the new owner. Use it ONLY when an external source already reassigns the 
 mirror, an upstream registry); on app-owned slugs it turns a rename into a way to take over
 somebody else's published URL.
 
+**`reclaim` frees only a RETIRED name.** A name another record still holds actively keeps
+blocking, which is the state a mirror lands in when its upstream events arrive out of order:
+upstream renames A to `y` and gives `x` to B, B's delivery arrives first, and B is named
+`x-2` forever while the source says `x`. Add `reclaimActive: true` to take the name from the
+live holder — its row is retired inside the same transaction, so the name is never owned by
+nobody, and its old URL still resolves. ⚠️ The displaced record then has NO current slug for
+that locale until its own source is synced; the package cannot know what it should be called
+instead. Listen for `Polyslug\Events\SlugReclaimed` (claimant, locale, slug,
+previousOwnerType, previousOwnerId) and re-sync from there.
+
 **On a scoped model the lookup needs the scope handed to it.** Uniqueness is per scope, so two
 records may hold the same slug (`/@alice/toolkit`, `/@bob/toolkit`); a slug-only read has only
 the string. Override `polyslugResolutionScope(): ?array` to return `['owner_id' => …]` — the
@@ -210,6 +221,10 @@ returning whichever row sorts first.
 ## Other operations
 
 - Gone/supersede: `polyslugSupersededBy()` 301s to a successor; `polyslugIsGone()` returns a configurable 410.
+  The successor is re-resolved through `polyslugResolveQuery()` before its route key is rendered, so a
+  successor the requester may not see produces no redirect — you do NOT need to filter inside
+  `polyslugSupersededBy()`. Use `polyslugResolveSelf()` for the same check on any model you obtained
+  outside a resolution path and are about to disclose.
 - Backfill: `php artisan polyslug:backfill "App\\Models\\Page" [--locale=de] [--queue] [--chunk=N]`.
   The model class is a REQUIRED argument, not an option — the command backfills one
   sluggable model at a time.

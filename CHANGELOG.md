@@ -4,6 +4,84 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-08-23
+
+### Security
+- **A supersede redirect now sends its successor through the resolution gate before naming
+  it.** 0.7.0 reversed this middleware so a canonical redirect could no longer overtake the
+  application's authorization — that fixed *when* the redirect is decided. It did not fix
+  *whose* row is named in it, and for a `polyslugSupersededBy()` redirect those are two
+  different rows.
+
+  The requested model is gated twice over: route binding resolved it through
+  `polyslugResolveQuery()`, and the application then answered 2xx for it. The successor is
+  gated by neither. It arrives as a return value, not as a resolution, and its route key —
+  in practice its title — was written into a `Location` header without anyone asking whether
+  the requester may see it. A consumer whose gate is closed and whose action authorizes
+  correctly could still disclose a foreign row's title.
+
+  A successor the gate rejects now produces no redirect for that parameter; the
+  application's own response is returned untouched, and the ordinary self-heal redirect for
+  the row the request legitimately holds still runs. Nothing is asked of the consumer, which
+  is the same reasoning 0.7.0 gave for deferring the resolution gate: the method is named
+  `supersededBy`, not `supersededByIfVisible`, and a security property does not belong in a
+  method whose signature gives no hint of it.
+
+### Added
+- **`reclaimActive: true` takes a name its previous owner still holds.** `reclaim` frees a
+  *retired* name; it does nothing about one that another record still holds actively — and that is
+  exactly the state a mirror lands in when its upstream events arrive out of order.
+
+  Concretely: upstream renames A from `x` to `y` and gives `x` to B, which is two deliveries.
+  In the expected order A is already retired when B arrives and `reclaim` handles it. If A's
+  delivery is lost — and a webhook sender does not always retry — A still holds `x` actively
+  when B arrives, B is named `x-2`, and the canonical URL disagrees with the thing it mirrors
+  from then on. The rejection surfaces as a constraint error on a webhook that retries forever,
+  so the cost lands in a queue rather than in a screen.
+
+  The takeover retires the previous owner's row inside the same transaction as the insert, so
+  the name is never owned by nobody; the retired row stays as history and its old URL still
+  resolves and 301s.
+
+  ⚠️ **The displaced record is left with no current slug for that locale** until its own source
+  is synced — the package cannot know what it should be called instead. Listen for the new
+  **`SlugReclaimed`** event, which names the claimant and the displaced record by type and key.
+
+  Off by default, and it requires `reclaim` (and therefore `idLess`) — rejected otherwise with
+  `MisconfiguredPolyslug`. For an app-owned name a takeover would be a way to seize someone
+  else's published URL, which is why none of this is the default.
+
+- **`polyslugReservedWords(array $inherited): array` — a model can now filter, replace or clear
+  the reserved-word list it inherits.** Until now the list could only ever be added to:
+  `polyslug.reserved.global` plus, with `from_routes` on, the first segment of every registered
+  route, plus the model's own `#[Polyslug(reserved: [...])]` — with no way to say "that list is
+  not mine".
+
+  For a model that sits behind a prefix by construction — `/@{owner}/{repo}` — a slug can never
+  shadow a route, because the prefix separates the namespaces completely. Every inherited
+  reservation there is a false positive, and it fails silently: the generator appends a counter
+  suffix rather than refusing, so a legitimately named record becomes `api-2`. For externally
+  assigned identifiers, `api`, `docs`, `demo` and `media` are not the edge case, they are the
+  middle of the distribution.
+
+  Return the argument unchanged (the default) and nothing about the current behavior moves.
+  Return `[]` to opt out entirely. The seam is offered the ROUTE-DERIVED words too, which is the
+  half a per-model `reserved: [...]` could never reach. The only previous escape was rebinding
+  `SlugGenerator` — rebuilding the collision core to be rid of a list.
+
+  It lives on the `HasPolyslug` trait, not on the `Sluggable` contract, matching
+  `polyslugResolutionScope()`: a model seam the trait itself calls, so implementing the contract
+  directly is unaffected.
+
+- **`polyslugResolveSelf()`** — re-resolves an instance through its own resolution gate,
+  returning the same row when the caller may see it and `null` when it may not. It is what
+  the supersede fix above is built on, and it is useful anywhere a model was obtained
+  outside a resolution path and is about to be disclosed.
+
+  ⚠️ It is declared on the `Sluggable` contract. Models using the `HasPolyslug` trait — the
+  documented pairing — get it for free. A class that implements the contract *without* the
+  trait must add it.
+
 ## [0.9.0] - 2026-08-21
 
 ### Added
