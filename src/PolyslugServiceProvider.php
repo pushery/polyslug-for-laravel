@@ -23,11 +23,16 @@ use Polyslug\Console\SitemapCommand;
 use Polyslug\Contracts\IdentityEncoder;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Contracts\SlugGenerator;
+use Polyslug\Contracts\TokenScheme;
 use Polyslug\Encoders\RandomTokenEncoder;
+use Polyslug\Encoders\SequentialTokenEncoder;
 use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Generators\DefaultSlugGenerator;
 use Polyslug\Http\Middleware\EnsureCanonicalSlug;
 use Polyslug\Support\PolyslugHead;
+use Polyslug\Support\RandomTokenScheme;
+use Polyslug\Support\SequentialTokenScheme;
+use Polyslug\Support\TokenAlphabet;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 final class PolyslugServiceProvider extends ServiceProvider
@@ -37,6 +42,16 @@ final class PolyslugServiceProvider extends ServiceProvider
      * self::ignoreMigrations() to publish and manage them in the host app instead.
      */
     public static bool $runsMigrations = true;
+
+    /**
+     * The random short-link width when `polyslug.short_links.length` says nothing.
+     *
+     * Ten rather than the identity token's sixteen, because a short link is meant to be typed
+     * off a page and read out loud — and it is not the thing a record is resolved by, so it
+     * carries less. It lives here rather than on RandomTokenScheme because it is a property of
+     * this feature, not of the scheme, which serves both stores.
+     */
+    private const int SHORT_LINK_LENGTH = 10;
 
     public static function ignoreMigrations(): void
     {
@@ -66,6 +81,45 @@ final class PolyslugServiceProvider extends ServiceProvider
             return $instance;
         });
 
+        // SINGLETONS, unlike the Sqids binding below, and the difference is state rather
+        // than style: a stored-token encoder memoizes what it has read, so a rendered list
+        // costs one query instead of one per row. Resolved per call it would hand back an
+        // empty memo every time, and polyslugPreload() — which groups models by the object
+        // identity of their encoder — would fill a memo that is discarded before the first
+        // route key is built. That is what a model naming one of these explicitly through
+        // `#[Polyslug(encoder: …)]` used to get: the class was bound nowhere, so the
+        // container built a fresh instance for every resolution, while the default path
+        // (through the IdentityEncoder singleton) kept exactly one.
+        $this->app->singleton(RandomTokenEncoder::class, static function (Application $app): RandomTokenEncoder {
+            $options = self::tokenOptions($app, 'polyslug.random_token');
+
+            return new RandomTokenEncoder($options['length'] ?? RandomTokenEncoder::DEFAULT_LENGTH, $options['alphabet']);
+        });
+
+        $this->app->singleton(SequentialTokenEncoder::class, static function (Application $app): SequentialTokenEncoder {
+            $options = self::tokenOptions($app, 'polyslug.sequential_token');
+
+            return new SequentialTokenEncoder($options['length'] ?? SequentialTokenEncoder::DEFAULT_LENGTH, $options['alphabet']);
+        });
+
+        // The scheme the /go/{token} short link draws from — its own token space, and its
+        // own setting, because a printed or spoken link wants a different trade from the
+        // token inside every URL. Bound rather than built inline so a consumer can replace
+        // it wholesale with a scheme of their own.
+        $this->app->singleton(TokenScheme::class, static function (Application $app): TokenScheme {
+            $options = self::tokenOptions($app, 'polyslug.short_links');
+            $scheme = $app->make(ConfigRepository::class)->get('polyslug.short_links.scheme', 'random');
+
+            // The default length is the SCHEME's, not the section's, and that is not a detail.
+            // One setting serves both schemes here, and the sensible starting width differs by
+            // an order of magnitude: ten random characters is a short link, ten COUNTED ones
+            // is `0000000000` for the first record. A section-level default would hand that to
+            // anyone who switched the scheme and did not also think to change the length.
+            return $scheme === 'sequential'
+                ? new SequentialTokenScheme($options['length'] ?? SequentialTokenScheme::DEFAULT_LENGTH, $options['alphabet'])
+                : new RandomTokenScheme($options['length'] ?? self::SHORT_LINK_LENGTH, $options['alphabet']);
+        });
+
         $this->app->bind(SqidsEncoder::class, static function (Application $app): SqidsEncoder {
             $config = $app->make(ConfigRepository::class);
             $alphabet = $config->get('polyslug.sqids.alphabet');
@@ -78,6 +132,30 @@ final class PolyslugServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(SlugGenerator::class, DefaultSlugGenerator::class);
+    }
+
+    /**
+     * The length and alphabet under a token-settings config key, defaulted rather than
+     * demanded.
+     *
+     * A published config file from an older version has none of these keys at all, so every
+     * read has to survive their absence — the same reason the encoder binding above carries
+     * its own fallback. A malformed value takes the default here instead of being coerced;
+     * the schemes then validate what they are actually handed, so a bad alphabet is refused
+     * by the one place that knows what makes an alphabet legal.
+     *
+     * @return array{length: int|null, alphabet: TokenAlphabet|null}
+     */
+    private static function tokenOptions(Application $app, string $key): array
+    {
+        $config = $app->make(ConfigRepository::class);
+        $length = $config->get($key.'.length');
+        $alphabet = $config->get($key.'.alphabet');
+
+        return [
+            'length' => is_int($length) ? $length : null,
+            'alphabet' => is_string($alphabet) ? new TokenAlphabet($alphabet) : null,
+        ];
     }
 
     public function boot(): void

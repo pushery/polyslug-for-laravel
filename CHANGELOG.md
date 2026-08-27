@@ -4,6 +4,225 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-27
+
+### Added
+- **`slugless: true` — the URL is the token alone.** The mirror image of `idLess`: that one
+  drops the id and keeps the slug, this one drops the slug and keeps the id, so
+  `/lists/my-shopping-list_k3f9dlq7xm2bv4tc` becomes `/lists/k3f9dlq7`. There is no
+  delimiter in front of it — with one part, a separator is a character in every URL that
+  says nothing, and on a model chosen for short URLs that is the whole cost of the feature.
+
+  It declares no `source`, so renaming the record cannot change its URL. That is the
+  property a shared or printed link needs and a descriptive URL cannot give.
+
+  Switching an existing model does not break its published links. A request for the old
+  `my-title_TOKEN` form resolves through the token at the end of it and is `301`ed to the
+  short form, the same self-healing the package already gives across an encoder change.
+  Without that second decode pass, turning the option on would have turned every published
+  link into a `404` — including links in print, on other people's pages, and in a search
+  index.
+
+  Four options are refused rather than ignored on a slugless model, because each would do
+  nothing and an option that silently does nothing reads as a behavior you have changed:
+  `idLess` (together they leave nothing to route on), `maxLength`, `reserved` and `source`.
+
+- **The random token's length and alphabet are settings.** `polyslug.random_token.length`
+  (default 16, unchanged) per application, or `#[Polyslug(encoderOptions: ['length' => 8])]`
+  for one model — so a list whose URL people retype can be short while the rest of the
+  application stays long.
+
+  **The length is a FLOOR, not a fixed width**, and that is what makes a short one a real
+  choice rather than a trap. Two characters is 1,296 tokens; a thousand records in, every
+  draw is a coin flip, and at 1,296 the space is gone. A width that keeps colliding now
+  yields to one character more — 36x the space — instead of throwing. Without that, the
+  failure mode was a `CouldNotIssueToken` raised from `encode()`, which runs while a URL is
+  being *rendered*: a 500 on a `GET`, months after the setting was chosen, on whichever
+  record happened to be next.
+
+  Changing the setting is safe on a live application. A token is looked up in
+  `polyslug_tokens`, never recomputed from the key, so every URL already issued keeps
+  resolving and only new records use the new length.
+
+- **`SequentialTokenEncoder` — the shortest URL there is.** The same stored mapping as the
+  random encoder, filled by counting instead of drawing: `0`, `1`, … `z`, then `00`. A
+  hundred records still fit in two characters, which is what a link shortener is after.
+
+  It is predictable, and that is the entire trade rather than an oversight: the token after
+  `k3f8` is `k3f9`, so the set can be walked, and the token reports how many records exist
+  and roughly when this one appeared. Fine for public content nobody is hiding; wrong for
+  anything the URL alone protects, which is why it is not the default and why a minimum
+  length is not offered as a fix — that moves where the counting starts, it does not
+  scatter what follows.
+
+  The counting is bijective, so it walks every width completely before growing one. An
+  ordinary base conversion follows `z` with `10` and can never emit `00`, discarding about
+  3% of every width — and the discarded tokens are exactly the shortest-looking ones.
+
+  Switching to it over a table full of random tokens starts counting past them rather than
+  colliding with them, so every existing URL keeps resolving.
+
+- **The `/go` short link takes its own scheme, length and alphabet** under
+  `polyslug.short_links`, separately from the identity token — a link that is printed,
+  spoken and put on a QR code wants a different trade from the one inside every URL. Bind
+  `Polyslug\Contracts\TokenScheme` to replace the scheme entirely.
+
+  A null length takes the *scheme's* default (10 random, 1 counted) rather than one number
+  for both, because ten random characters is a short link while ten counted ones is
+  `0000000000` for the first record.
+
+- **A configurable alphabet on both schemes.** `0-9a-z` by default; pass your own to drop
+  the characters people confuse when reading a code off paper, or to widen it. It must be
+  made of URL-unreserved characters and must not repeat one — a repeat makes the numbering
+  ambiguous, and the second record handed an ambiguous token would lose to the unique index
+  on every attempt, forever.
+
+- **`polyslug:doctor` reports whether a `PolyslugUrlResolver` is bound.** Reported, never
+  failed: an application that uses none of the three features needing it needs no resolver,
+  and failing a doctor run over an unused contract teaches people to ignore the command. What
+  the report removes is the guessing — two of those three fail silently without the binding,
+  and `/go` structurally cannot say why without turning its `404` into an existence oracle.
+
+- **`polyslug:doctor` checks the token settings and reports how full each token space is.**
+
+  The settings check builds every configured scheme up front. Without it, a length of zero
+  or a `/` in an alphabet first refuses while a URL is being *rendered*, in production, for
+  a setting that shipped with a green test suite — because nothing in a test suite renders
+  a URL for a record that does not exist yet.
+
+  The space report names each width that is at least a quarter full, and says the
+  consequence is longer URLs rather than an outage, so nobody reads it as an emergency:
+
+  ```text
+  ! identity tokens: 400 of 1,296 2-character tokens are taken (31%).
+    New tokens widen to 3 characters as this fills.
+  ```
+
+  It never fails the run. A filling width is not a fault, and on a counted scheme it is
+  exactly what is supposed to happen.
+
+### Fixed
+- **A model naming a stored-token encoder explicitly paid one query per rendered row.**
+  `RandomTokenEncoder` memoizes what it reads, which is what makes a rendered list cost one
+  query instead of one per row — but the class was bound nowhere, so
+  `#[Polyslug(encoder: RandomTokenEncoder::class)]` had the container build a *fresh*
+  instance on every resolution, with an empty memo, while the default path (through the
+  `IdentityEncoder` singleton) kept exactly one. `polyslugPreload()` was affected the same
+  way: it groups models by the object identity of their encoder, so it filled a memo that
+  was discarded before the first route key was built. Both encoders are now bound as
+  singletons, and per-model settings resolve to one shared instance per distinct setting.
+
+- **`shortLink()` could throw on a token collision instead of recovering.** It was a
+  `firstOrCreate`, which recovers from one of the table's two unique indexes: it retries by
+  re-reading the *target*, so a row rejected because another record already held that
+  *token* found nothing on the re-read and surfaced as a query exception. At ten random
+  characters that is unreachable, which is why it never showed — at four it is a matter of
+  time, and it would land while a page is rendering. It now claims in a loop like the
+  identity store, recovering from either index.
+
+### Changed
+- **BREAKING — `Sluggable` gained `seedSlug()` and `polyslugSeed()`, and a backfill no longer
+  takes a name another record still holds.** A model using `HasPolyslug` needs no change; a
+  consumer implementing the interface *without* the trait has two methods to add.
+
+  `reclaimActive` is a property of the MODEL, but taking a name is a property of the WRITE. A
+  webhook carries a handover the source has already made, so taking is correct. A backfill
+  carries no such thing: two records that already exist and both want one name are a conflict
+  in the data, and taking there decides who owns the address by the order the rows came back —
+  green, silent, and visible only to whoever follows the old URL. `polyslug:backfill` had
+  exactly that defect; it seeds now.
+
+  A named method rather than a flag on `setSlug()`, because `reclaimActive` requires `reclaim`
+  and a boolean could therefore only ever turn the behavior *off* — a parameter whose `true`
+  means "do whatever the model already said" is a trap. It was trait-only first, and the
+  package's own backfill settled it: a capability the contract does not carry cannot be called
+  on anything typed as `Sluggable`, not by a consumer and not by this package. Half a
+  capability is worse than a named break in a release that already carries one.
+
+  On a model that is not `reclaimActive` seeding and claiming are identical, which is what
+  makes `seedSlug()` safe to call without first checking how each model is configured.
+  Reported by a consumer during a capability diff (chronik).
+
+- **BREAKING — a stored token now belongs to a RECORD, not to an id.** `polyslug_tokens`
+  gained a `key_type` column and its unique index widened from `key_value` to
+  `(key_type, key_value)`, so `RandomTokenEncoder` and `SequentialTokenEncoder` keep one
+  token space per model type. `Page#1` and `Wishlist#1` no longer share a token, and a token
+  addressed to another model type resolves to `null` — a clean `404` — instead of an id this
+  model would look up in its own table.
+
+  The table was keyed by the primary-key **value** alone, so every pair of tables collided at
+  id 1. Resolution stayed correct, because the route names the model type; what it cost was a
+  property `RandomTokenEncoder` advertises when it calls its output unguessable. Knowing one
+  model's URL was enough to construct every other Polyslug model's URL for that id, and from
+  there the resolution gate was the only thing left standing. `polyslug_short_links`, solving
+  the same problem one table over, already keyed on the full target — only one of the two
+  tables separated the model types, and neither said so.
+
+  **Run `php artisan migrate`. Existing tokens are migrated, not reissued** — the migration
+  reads each token's owner from `polyslug_slugs`, which already records the pair, so a record
+  keeps the token its published URLs contain. Where several types claim one id, the oldest
+  slug row wins: whoever published first is the answer that breaks the fewest links. A token
+  that cannot be attributed stays in the untyped lane, keeps resolving, and is adopted by the
+  record it belongs to the first time that record renders a URL. Skipping the migration would
+  leave no row matching `(type, id)` and mint a new token for every record on the first
+  render — see [Upgrading to 0.11](https://docs.pushery.com/polyslug-for-laravel/features/identity-encoders#upgrading-to-011).
+
+  A custom encoder needs no change. The capability is opt-in through the new
+  `StoresTokensPerRecord` contract, which **extends** `IdentityEncoder` rather than replacing
+  it: a computed token — Sqids, a UUID, the raw key — is a function of the key alone and
+  cannot be given an owner, so it is asked for rather than assumed.
+
+- **`source` is optional on the `#[Polyslug]` attribute**, so a slugless model can declare
+  none. Omitting it on any other model is refused with `MisconfiguredPolyslug` rather than
+  producing a silent empty slug for every record — the attribute signature cannot express
+  "required unless another flag is set", so the config constructor states it.
+
+- **Random tokens are drawn uniformly from their alphabet.** They were `Str::lower(Str::random())`,
+  which folds a 62-character draw onto 36 characters, so a letter landed twice as often as a
+  digit — about 5.12 bits per character instead of 5.17. At sixteen characters that is noise,
+  which is why it never mattered; at the short lengths this release supports it is the
+  difference between the documented token space and the real one, and a security parameter
+  that overstates itself is worse than a shorter one that does not. Existing tokens are
+  unaffected — they are stored, not recomputed.
+
+- **A token claim now re-attempts eight times rather than five.** A scheme widens its output
+  every three lost draws, so five attempts reached one widening and two draws into the
+  second. Eight reach the second widening completely, after which the space is 1,296x the
+  one that was full.
+
+### Documentation
+- **New [The URL resolver](https://docs.pushery.com/polyslug-for-laravel/features/url-resolver)
+  page, written because a developer lost time to its absence.** Short links, sitemaps and the
+  `laravel/head` tags all need one class the application writes itself — the package cannot
+  know your routes — and the short-links page mentioned it in a subordinate clause twenty
+  lines below a setup that looked complete. Following that setup yields a `404` on every link.
+
+  The asymmetry is what made this worth fixing rather than tidying: `polyslug:sitemap` prints
+  an error naming the contract when it cannot build a URL, but `/go` cannot — its `404` has to
+  stay indistinguishable from an unknown token, or the route becomes an existence oracle. The
+  feature with the *worse* failure signal had the *thinner* documentation.
+
+  The short-links page now opens with the three setup steps in the order they are needed, the
+  quick start names the step before anyone can trip over it, and the resolver page states what
+  each of the three features does when the binding is missing. The Boost skill and guideline
+  carry the same, since a consuming app reads those out of `vendor/`.
+
+- New **[Token-only URLs](https://docs.pushery.com/polyslug-for-laravel/features/token-only-urls)**
+  page: when the shape fits, how to choose the length and the scheme, what switching costs,
+  and what the option refuses.
+- **`maxLength` now says what it does not do.** It trims the slug and has never touched the
+  token after it, and the reference said only "trim to at most this many characters" — which
+  is the natural place to look when a URL is too long, and the wrong one. Named in the
+  attribute reference, the model reference, the Boost guideline and the skill.
+- The token table's reference, the encoder page and the Boost skill all describe the new
+  `(morph type, id)` key, the untyped lane that keeps pre-0.11 URLs resolving, and why the
+  owner column is `NOT NULL` rather than nullable. **[Upgrading to 0.11](https://docs.pushery.com/polyslug-for-laravel/features/identity-encoders#upgrading-to-011)**
+  is new, and it leads with the one thing that must not be skipped.
+
+  The finding these pages used to state as the current behavior was first pinned by a test,
+  and that test is now the proof of its fix rather than of its existence.
+
+
 ## [0.10.0] - 2026-08-23
 
 ### Security

@@ -21,7 +21,7 @@ interface Sluggable
     public function polyslugIsRoutable(?string $locale = null): bool;
 
     /** A model this one has been superseded by — its URL 301s to the successor's canonical (null = not superseded). */
-    public function polyslugSupersededBy(): ?self;
+    public function polyslugSupersededBy(): ?Sluggable;
 
     /** Whether this model is permanently gone — its URL returns the configured gone status (410 by default). */
     public function polyslugIsGone(): bool;
@@ -42,7 +42,7 @@ interface Sluggable
     public function polyslugRouteKeyForLocale(string $locale): string;
 
     /** The parent in a nested hierarchy — override to compose ancestor slugs into the route-key path. null (default) = not nested. Pair with a scope on the parent key for per-parent slug uniqueness. */
-    public function polyslugParent(): ?self;
+    public function polyslugParent(): ?Sluggable;
 
     /** The slash-joined slug path (ancestors + own) for the given (or active) locale; just the own slug when not nested. maxDepth bounds recursion so a parent cycle can't loop forever. */
     public function polyslugPath(?string $locale = null, int $maxDepth = 20): string;
@@ -51,7 +51,7 @@ interface Sluggable
     public function shortLink(?string $locale = null): string;
 
     /** Resolve this model type by primary key THROUGH the resolution gate (polyslugResolveQuery), so tenant/visibility scoping applies on every path — including /go. */
-    public function polyslugResolveByKey(mixed $key): ?self;
+    public function polyslugResolveByKey(mixed $key): ?static;
 
     /**
      * Re-resolve THIS instance through its own resolution gate: the same row when the
@@ -63,16 +63,22 @@ interface Sluggable
      * comes from a return value, not from a resolution, so nothing has asked whether the
      * requester may see it before its slug is rendered into a Location header.
      */
-    public function polyslugResolveSelf(): ?self;
+    public function polyslugResolveSelf(): ?static;
 
     /** Generate or refresh the current slug from the model's source (idempotent). */
     public function polyslugSync(?string $locale = null): void;
+
+    /** Generate or refresh the current slug WITHOUT taking a name another record still holds — the backfill counterpart to polyslugSync(). Identical on a model that is not `reclaimActive`. */
+    public function polyslugSeed(?string $locale = null): void;
 
     /** Apply the delete policy (cascade slug rows on hard/force delete; release on soft-delete if configured). */
     public function polyslugOnDeleted(): void;
 
     /** Set the current slug for a locale from the given source, or the model's own source. */
     public function setSlug(string $locale, ?string $source = null): void;
+
+    /** Write a slug WITHOUT taking a name another record still holds: the active holder blocks, so the newcomer yields with a suffix instead of displacing it. Identical to setSlug() on a model that is not `reclaimActive`. */
+    public function seedSlug(string $locale, ?string $source = null): void;
 
     /**
      * The locales that currently have a slug.

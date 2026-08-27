@@ -8,41 +8,34 @@ use Override;
 use Polyslug\Contracts\BulkIdentityEncoder;
 use Polyslug\Contracts\StoresTokensPerRecord;
 use Polyslug\Contracts\TokenScheme;
-use Polyslug\Support\RandomTokenScheme;
+use Polyslug\Support\SequentialTokenScheme;
 use Polyslug\Support\TokenAlphabet;
 use Polyslug\Support\TokenStore;
 
 /**
- * Leak-safe identity: each key maps to an unguessable random token kept in the
- * polyslug_tokens table. The URL token reveals nothing about the key — no row count,
- * order, or value — so it suits enumeration-sensitive, integer-keyed tables. The
- * token is stable per key (one row), so each record keeps a single canonical URL.
+ * The shortest URL a record can have: tokens are handed out in order — `1`, `2`, … `z`,
+ * then `10` — and a width grows only once it is used up. What a link shortener wants.
  *
- * NOTE — encode() WRITES on first use. Rendering a link issues an INSERT the first
- * time a given key is encoded, and never again afterwards. That rules this encoder
- * out on a read-only replica connection, and it makes the first render of a batch of
- * new records the moment of peak write contention. Both are inherent to storing the
- * mapping; the retry loop in {@see TokenStore} is what makes them safe rather than fatal.
+ * IT IS PREDICTABLE ON PURPOSE, and that is the entire trade. The token after `k3f8` is
+ * `k3f9`, so anyone can walk the whole set, and the token reports both how many records
+ * exist and roughly when this one was created. On public content nobody is trying to hide,
+ * that costs nothing and buys the shortest link there is. On anything the URL alone
+ * protects it is the wrong encoder, and no minimum length changes that — starting at four
+ * characters moves where the counting begins, it does not scatter what follows.
+ * {@see RandomTokenEncoder} is the one that makes a URL unguessable.
  *
- * TOKEN LENGTH is a parameter, not a constant, because the two things it trades off are
- * the consumer's to weigh and not this package's: URL length against how many tokens a
- * guesser must try. A share link that is the only thing between a visitor and the content
- * wants length; a token behind an authorization check, meant only to keep the URL out of
- * the way, does not. Set it with `polyslug.random_token.length`, or per model with
- * `#[Polyslug(encoderOptions: ['length' => …])]`. It is a FLOOR: a length whose space fills
- * up yields to one character more rather than failing to issue a URL.
+ * Like the random encoder it STORES the mapping (polyslug_tokens), so the token is stable
+ * per record, deleting a record never hands its token to another, and switching to this
+ * encoder over a table full of random tokens starts counting past them instead of fighting
+ * them — every existing URL keeps resolving.
  *
- * CHANGING IT DOES NOT BREAK EXISTING URLS. A token is looked up in the table, never
- * recomputed from the key, so tokens issued at the old length keep resolving unchanged and
- * only records encoded from here on get the new one. The table legitimately holds a mix.
- *
- * For the opposite trade — the shortest possible URL, at the cost of a completely
- * predictable one — see {@see SequentialTokenEncoder}.
+ * Configure the starting width and the alphabet with `polyslug.sequential_token`, or per
+ * model with `#[Polyslug(encoderOptions: ['length' => …, 'alphabet' => …])]`.
  */
-final readonly class RandomTokenEncoder implements BulkIdentityEncoder, StoresTokensPerRecord
+final readonly class SequentialTokenEncoder implements BulkIdentityEncoder, StoresTokensPerRecord
 {
-    /** @see RandomTokenScheme::DEFAULT_LENGTH */
-    public const int DEFAULT_LENGTH = RandomTokenScheme::DEFAULT_LENGTH;
+    /** Counting starts at the first token there is, so the first record gets a one-character URL. */
+    public const int DEFAULT_LENGTH = 1;
 
     private TokenStore $store;
 
@@ -50,7 +43,7 @@ final readonly class RandomTokenEncoder implements BulkIdentityEncoder, StoresTo
 
     public function __construct(int $length = self::DEFAULT_LENGTH, ?TokenAlphabet $alphabet = null)
     {
-        $this->tokenScheme = new RandomTokenScheme($length, $alphabet);
+        $this->tokenScheme = new SequentialTokenScheme($length, $alphabet);
         $this->store = new TokenStore($this->tokenScheme);
     }
 
