@@ -109,8 +109,9 @@ Rename the page and the old URL `301`s to the new one, by itself.
 ## Requirements
 
 - PHP 8.4+
-- Laravel 13+
-- PostgreSQL, MySQL 8.4+, or SQLite — the uniqueness guarantees are enforced natively on
+- Laravel 13+ — 13.17+ only for the optional `laravel/head` integration, which is that
+  package's own floor, not Polyslug's
+- PostgreSQL 18+, MySQL 8.4+, or SQLite — the uniqueness guarantees are enforced natively on
   each, and the full suite runs against all three. So Polyslug works on Laravel Cloud
   (serverless Postgres + MySQL 8.4 LTS) with no extra configuration.
 

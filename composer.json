@@ -31,7 +31,7 @@
         "larastan/larastan": "3.10.0",
         "laravel/head": "^0.2.0",
         "laravel/pao": "^1.1",
-        "laravel/pint": "^1.0",
+        "laravel/pint": "1.30.5",
         "orchestra/testbench": "^11.0",
         "pestphp/pest": "^5.0",
         "pestphp/pest-plugin-agent": "^5.0",
@@ -41,12 +41,14 @@
         "pestphp/pest-plugin-mutate": "^5.0.1",
         "pestphp/pest-plugin-phpstan": "5.2.0",
         "pestphp/pest-plugin-rector": "^5.0",
-        "pestphp/pest-plugin-type-coverage": "^5.0",
-        "rector/rector": "2.6.3",
-        "spaze/phpstan-disallowed-calls": "4.14.0"
+        "pestphp/pest-plugin-type-coverage": "5.0.2",
+        "phpstan/phpstan": "2.2.9",
+        "rector/rector": "2.6.4",
+        "spaze/phpstan-disallowed-calls": "4.14.0",
+        "tomasvotruba/type-coverage": "2.3.4"
     },
     "suggest": {
-        "laravel/head": "Lets a Polyslug model describe its own <head>: Head::polyslug($model) writes the canonical URL, the reciprocal hreflang set, the Open Graph locale set and the robots directive from the model's own slug data."
+        "laravel/head": "Lets a Polyslug model describe its own <head>: Head::polyslug($model) writes the canonical URL, the reciprocal hreflang set, the Open Graph locale set and the robots directive from the model's own slug data. Needs Laravel 13.17+, which is laravel/head's own floor - Polyslug itself needs only 13.0."
     },
     "autoload": {
         "psr-4": {

@@ -4,6 +4,26 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-08-27
+
+### Added
+- **`Route::polyslug()` works after `middleware()`, `prefix()`, `name()` and `domain()`.** Until now the macro existed only on the router, so the bare `Route::polyslug('/pages/{page}', …)` worked and every grouped form — `Route::middleware('auth')->polyslug(…)` — threw `BadMethodCallException` naming a framework class you never wrote. That is the shape you reach for the first time a route needs authentication or a prefix. The route still receives the group's own middleware plus `SubstituteBindings` and `polyslug.canonical`, in that order, so self-healing cannot silently no-op from a mis-ordered stack.
+
+### Changed
+- **`$action` on `Route::polyslug()` is typed `Closure|array|string|null` instead of `callable`.** The old type was wider than the framework itself: the one callable shape that is none of those three — an invokable object — never reached a controller, it fataled while the route was being registered. Nothing that worked before stops working; the signature simply stops advertising something that could not.
+
+### Fixed
+- **Every alternate Open Graph locale is announced, not just one of them.** `Head::polyslug($model)` on a model in three or more languages shipped a single `og:locale:alternate` tag, whichever locale sorted last. The `hreflang` set beside it was complete the whole time, so the page told crawlers about every language version and told Open Graph about one. A model in two languages was never affected: with a single alternate there is nothing to collide with.
+
+  If you rely on `Head::polyslug()` for multilingual pages, the rendered `<head>` gains one `og:locale:alternate` tag per other locale after this upgrade. An alternate locale you declared by hand is kept, and a locale named twice still renders once.
+
+### Documentation
+- **The `laravel/head` integration now states its Laravel floor.** Every published `laravel/head` requires Laravel 13.17 or newer, while Polyslug itself requires 13.0 — so on an application pinned below 13.17 this one optional integration is unavailable and the rest of Polyslug is not. Composer refuses the install rather than degrading quietly, but nothing said so beforehand. The install section, the version policy, both requirements lists, the Composer `suggest` text and the bundled adoption guidance all carry it now.
+- **The canonical claim is narrowed to what holds.** One resolver still means the canonical URL, the `hreflang` set and the sitemap cannot disagree about *which address* a record has. They can differ in *form*: `laravel/head` normalizes the canonical it renders — forcing HTTPS and stripping a trailing slash by default, either of which your application can flip — while the alternates and `polyslug:sitemap` are emitted verbatim. A resolver built on `route()` or `url()` over HTTPS produces no difference at all.
+- **The `alternates()` merge caveat is stated.** A hand-written entry survives only for a locale Polyslug does not know. The merge is per key and Polyslug writes second, so for a locale the model is routable in, the resolver URL replaces the hand-written one.
+- **The unbound-resolver table names the tag that still ships.** Without a bound `PolyslugUrlResolver` the canonical tag, the `hreflang` set and `og:locale` are withheld — but the `robots` directive is not, because it needs no resolver. A gated model stays out of the index either way.
+- **Keeping drawn tokens out of exception messages.** On Laravel 13.27 or newer, `mask_bindings_in_exception_messages` on the connection holding `polyslug_tokens` leaves the query placeholders in place, so a token cannot reach an exception message, a `failed_jobs` row or an APM span. It is your application's connection setting, so Polyslug documents it rather than shipping it.
+
 ## [0.11.0] - 2026-08-27
 
 ### Added
