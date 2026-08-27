@@ -12,6 +12,10 @@ use Polyslug\Exceptions\MisconfiguredPolyslug;
 /**
  * The resolved slug configuration for a model, normalized from the #[Polyslug]
  * attribute or a polyslug() method override.
+ *
+ * THE CONSTRUCTOR IS THE VALIDATION SEAM, and deliberately so: a polyslug() override builds
+ * one of these directly, so a rule checked in the attribute instead would hold for a static
+ * declaration and not for a per-tenant one.
  */
 final readonly class PolyslugConfig
 {
@@ -38,6 +42,7 @@ final readonly class PolyslugConfig
         public bool $idLess = false,
         public bool $reclaim = false,
         public bool $reclaimActive = false,
+        public bool $slugless = false,
     ) {
         // An idLess URL is the slug alone, so an idLess model resolves BY its slug and the
         // slug must stay unique. `unique: false` (records may share a slug) is therefore only
@@ -62,6 +67,91 @@ final readonly class PolyslugConfig
         if ($this->reclaimActive && ! $this->reclaim) {
             throw MisconfiguredPolyslug::reclaimActiveRequiresReclaim();
         }
+
+        // slugless and idLess are the two halves of the URL grammar, and each drops the
+        // other one's half. Together there is nothing left to route on.
+        if ($this->slugless && $this->idLess) {
+            throw MisconfiguredPolyslug::sluglessExcludesIdLess();
+        }
+
+        // The three below would each do NOTHING on a slugless model, and are refused for the
+        // reason the reclaim checks give: whoever set one believes a behavior changed, and
+        // the only way they would find out otherwise is from the behavior they were trying
+        // to change. maxLength is the one worth naming — it trims the SLUG, so on a model
+        // whose URL is a token it is the most natural wrong guess about why the URL is long.
+        if ($this->slugless && $this->maxLength !== null) {
+            throw MisconfiguredPolyslug::sluglessExcludesMaxLength();
+        }
+
+        if ($this->slugless && $this->reserved !== []) {
+            throw MisconfiguredPolyslug::sluglessExcludesReserved();
+        }
+
+        if ($this->slugless && $this->source !== []) {
+            throw MisconfiguredPolyslug::sluglessTakesNoSource();
+        }
+
+        // Stated here rather than left to the attribute signature, which cannot express it:
+        // source has to be optional for a slugless model to declare none, and the moment it
+        // is optional, omitting it on an ordinary model becomes a silent empty slug for every
+        // record instead of a refusal at the first save.
+        if (! $this->slugless && $this->source === []) {
+            throw MisconfiguredPolyslug::sourceIsRequired();
+        }
+    }
+
+    /**
+     * Whether this model's slug rows take part in the uniqueness index.
+     *
+     * Two different reasons land on the same answer, which is why they are resolved once
+     * here rather than re-derived at each of the three places that ask. `unique: false` is a
+     * consumer saying records may share a slug because the encoded id disambiguates them;
+     * `slugless` produces no slug at all, so every record would hold the same empty one and
+     * a uniqueness index over that would hand the second record the counter suffix `-2` — a
+     * name, in the URL of a model whose entire point is not to have one.
+     */
+    /**
+     * The same configuration, except it will not take a name another record still holds.
+     *
+     * `reclaimActive` is a property of the MODEL, but taking a name is a property of the
+     * WRITE. A webhook carries a handover the source has already made, so taking is correct.
+     * A backfill carries no such thing: two existing records wanting one name is a conflict
+     * in the data, and whoever takes there decides ownership by row order, silently.
+     *
+     * Only ever narrowing. Turning reclaimActive ON for one call is not offered, because it
+     * requires `reclaim` and would let a caller assemble a combination the config constructor
+     * refuses — a validity rule that can be sidestepped per call is not a rule.
+     */
+    public function withoutActiveReclaim(): self
+    {
+        if (! $this->reclaimActive) {
+            return $this;
+        }
+
+        return new self(
+            source: $this->source,
+            separator: $this->separator,
+            transliterate: $this->transliterate,
+            maxLength: $this->maxLength,
+            unique: $this->unique,
+            scope: $this->scope,
+            reserved: $this->reserved,
+            immutable: $this->immutable,
+            encoder: $this->encoder,
+            onDelete: $this->onDelete,
+            emptyFallback: $this->emptyFallback,
+            encoderOptions: $this->encoderOptions,
+            unicode: $this->unicode,
+            idLess: $this->idLess,
+            reclaim: $this->reclaim,
+            reclaimActive: false,
+            slugless: $this->slugless,
+        );
+    }
+
+    public function enforcesUniqueSlug(): bool
+    {
+        return $this->unique && ! $this->slugless;
     }
 
     public static function fromAttribute(PolyslugAttribute $attribute): self
@@ -83,6 +173,7 @@ final readonly class PolyslugConfig
             idLess: $attribute->idLess,
             reclaim: $attribute->reclaim,
             reclaimActive: $attribute->reclaimActive,
+            slugless: $attribute->slugless,
         );
     }
 }

@@ -51,7 +51,7 @@ final class BackfillSlugsCommand extends Command
 
         foreach ($model::query()->lazyById() as $row) {
             if ($row instanceof Sluggable && $row->currentSlug($locale) === null) {
-                $row->polyslugSync($locale);
+                $row->polyslugSeed($locale);
                 $backfilled++;
             }
         }

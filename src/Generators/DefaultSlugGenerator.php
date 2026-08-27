@@ -18,6 +18,15 @@ final class DefaultSlugGenerator implements SlugGenerator
     #[Override]
     public function generate(SlugRequest $request, PolyslugConfig $config): string
     {
+        if ($config->slugless) {
+            // A slugless URL is the encoded token alone, so there is no name to build, no
+            // source to read and nothing to collide with. Returning before slugify() rather
+            // than letting it fall out the empty-source path is what keeps that true: that
+            // path is governed by emptyFallback, which a consumer may set to 'throw', and a
+            // model that declares it has no slug must not be able to fail for not having one.
+            return '';
+        }
+
         $base = $this->slugify($request->source, $config);
 
         if (! $config->unique) {

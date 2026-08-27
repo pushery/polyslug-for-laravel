@@ -10,10 +10,12 @@ use RuntimeException;
  * Thrown when a #[Polyslug] attribute (or a PolyslugConfig from a polyslug() override)
  * combines mutually exclusive options.
  *
- * Currently: `idLess: true` with `unique: false`. An idLess URL is the slug alone — there
- * is no encoded id to disambiguate — so the slug MUST stay unique to resolve to one model.
- * `unique: false` (which lets records share a slug) only makes sense for a non-idLess model,
- * whose id carries identity.
+ * Two shapes of mistake end up here. One is a pair that contradicts itself — `idLess: true`
+ * with `unique: false`, where the URL is the slug alone and so the slug must stay unique to
+ * resolve; or `slugless: true` with `idLess: true`, which drops both halves of the URL. The
+ * other is an option that would quietly do NOTHING, which is refused for the reason the
+ * reclaim messages give: whoever set it believes a behavior changed, and the only way they
+ * would find out otherwise is from the behavior they were trying to change.
  */
 final class MisconfiguredPolyslug extends RuntimeException
 {
@@ -33,6 +35,52 @@ final class MisconfiguredPolyslug extends RuntimeException
             .'reclaimActive widens reclaim from retired names to a name another record still '
             .'holds, so on its own it would take the name from a live holder and then be refused '
             .'by that holder\'s own retired rows. Add `reclaim: true`, or drop `reclaimActive`.'
+        );
+    }
+
+    public static function sluglessExcludesIdLess(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `slugless: true` with `idLess: true`: slugless drops '
+            .'the slug and keeps the encoded id, idLess drops the encoded id and keeps the slug, so '
+            .'together they leave nothing for the URL to carry. Pick the half the URL should be.'
+        );
+    }
+
+    public static function sluglessExcludesMaxLength(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `slugless: true` with `maxLength`: maxLength trims '
+            .'the SLUG, and a slugless model has none — the length of its URL is the length of the '
+            .'encoder token. Set `polyslug.random_token.length`, or '
+            .'`encoderOptions: [\'length\' => …]` for this model alone, and drop `maxLength`.'
+        );
+    }
+
+    public static function sluglessExcludesReserved(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `slugless: true` with `reserved`: reserved words keep '
+            .'a generated SLUG from taking a name, and a slugless model generates none. Drop '
+            .'`reserved`, or drop `slugless: true` if the URL should carry a name after all.'
+        );
+    }
+
+    public static function sluglessTakesNoSource(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `slugless: true` with `source`: the source columns '
+            .'exist to build a slug, and a slugless URL carries none — leaving them would read as if '
+            .'renaming the record still changed its URL. Drop `source`.'
+        );
+    }
+
+    public static function sourceIsRequired(): self
+    {
+        return new self(
+            'A #[Polyslug] model must declare `source` — the column(s) its slug is built from. The '
+            .'only exception is `slugless: true`, whose URL is the encoder token alone and has no '
+            .'slug to build.'
         );
     }
 

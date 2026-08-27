@@ -65,6 +65,12 @@ Rename the page and the old URL `301`s to the new one, by itself.
   exposed row counts, no enumerable primary keys. The default encoder issues a random,
   unguessable token per row — the only shipped encoder that makes that claim true end to
   end. The choice is yours, though: Sqids, UUID, ULID, the raw key, or your own.
+- 📏 **URLs as short as you want them.** The URL is `{slug}_{token}` by default, and both
+  halves are yours to drop or shrink: `slugless: true` makes it the token alone
+  (`/lists/k3f9dlq7`), `idLess: true` makes it the slug alone, and the token's length and
+  alphabet are settings — per application or per model. A length that runs out of tokens
+  widens by a character instead of failing, so a short one is a real choice. Need the
+  shortest URL there is? A counted scheme hands out `0`, `1`, … `z`, then `00`.
 - ♻️ **Self-healing URLs.** Rename freely. A stale slug on a `GET`/`HEAD` request is
   `301`-redirected to the current canonical URL automatically — no redirect tables to
   hand-maintain, no dead links, no lost link equity.

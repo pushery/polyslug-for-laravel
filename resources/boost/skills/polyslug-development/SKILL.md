@@ -42,10 +42,10 @@ class Page extends Model implements Sluggable
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `source` | — | Column(s) the slug is built from (`string` or `array`; arrays join with a space). |
+| `source` | — | Column(s) the slug is built from (`string` or `array`; arrays join with a space). Required unless `slugless`. |
 | `separator` | `'-'` | Word separator inside the slug. |
 | `transliterate` | `Simple` | `TransliterationProfile::Simple` (ü→u) or `Din` (ü→ue). |
-| `maxLength` | `null` | Trim to at most N characters (never mid-separator). |
+| `maxLength` | `null` | Trim the **slug** to at most N characters (never mid-separator). It does NOT shorten the `_{token}` after it — see `polyslug.random_token.length`. Refused with `slugless`. |
 | `unique` | `true` | Append `-2`, `-3`, … on a collision. |
 | `scope` | `null` | Column(s) that scope uniqueness (e.g. `tenant_id`, `parent_id`). |
 | `reserved` | `[]` | Slugs that may never be assigned. Override `polyslugReservedWords(array $inherited): array` on the model to FILTER, replace or clear everything it inherits (own list + `reserved.global` + route-derived words); returning `[]` opts out entirely. Needed for a model behind a prefix like `/@owner/repo`, where a slug cannot shadow a route and every reservation is a false positive that silently becomes `api-2`. |
@@ -53,10 +53,11 @@ class Page extends Model implements Sluggable
 | `encoder` | `null` | Per-model `IdentityEncoder` class overriding the global one. |
 | `onDelete` | `'keep'` | On soft-delete: `keep` reserves the slug; `release` frees it. Hard/force delete always cascades slug rows. |
 | `emptyFallback` | `'id-only'` | A source with no sluggable characters (CJK/emoji-only): `id-only` stores an empty slug (URL is `_{id}`) so the save never fails; `throw` raises `CouldNotGenerateSlug`. |
-| `encoderOptions` | `[]` | Per-model `SqidsEncoder` options (`alphabet`, `min_length`) — a dedicated token space. Ignored unless the effective encoder is Sqids. |
+| `encoderOptions` | `[]` | Per-model encoder settings — a dedicated token space. Sqids: `alphabet`, `min_length`. `RandomTokenEncoder` / `SequentialTokenEncoder`: `length`, `alphabet`. A key the effective encoder does not understand is ignored. |
 | `unicode` | `'ascii'` | `native` keeps Unicode letters/numbers (non-Latin markets); slugs are lower-cased at generation so the case-insensitive unique index is consistent on PostgreSQL and SQLite. |
 | `idLess` | `false` | Drop the `_{encodedId}` suffix — the URL is the slug alone; resolution is by slug (see Slug-only). |
 | `reclaim` | `false` | Only with `idLess`. Releases a retired slug so another record may claim the name. Refused without `idLess`. |
+| `slugless` | `false` | Drop the SLUG — the URL is the encoder token alone (`/lists/k3f9dlq7`). The mirror image of `idLess`; setting both is refused, as are `source`, `maxLength` and `reserved`, none of which do anything without a slug. Renaming the record cannot change its URL, and URLs published before the switch keep resolving and 301 to the short form. |
 | `reclaimActive` | `false` | Only with `reclaim`. Also takes a name another record still holds ACTIVELY: the holder's row is retired and the newcomer gets the name. The displaced record is then left with NO current slug until its own source is synced — listen for `SlugReclaimed`. Refused without `reclaim`. |
 
 For dynamic (per-tenant/runtime) config, implement `Polyslug\Contracts\ConfiguresPolyslug` and
@@ -64,8 +65,12 @@ return a `PolyslugConfig` from `polyslug()` — it overrides the attribute.
 
 ## `config/polyslug.php`
 
-`encoder`, `sqids.{alphabet,min_length}`, `legacy_decoders` (previous encoders to try on a
-decode miss — encoder migration), `write.max_attempts`, `locale.{source,route_param,missing,fallback_locale}`,
+`encoder`, `random_token.{length,alphabet}` and `sequential_token.{length,alphabet}` (the
+stored-token encoders — `length` is a FLOOR, a width whose space fills up widens by a
+character rather than failing to issue a URL), `short_links.{scheme,length,alphabet}` (the
+`/go` token, its own space; `scheme` is `random` or `sequential`, a null length takes the
+scheme's default of 10 random / 1 counted), `sqids.{alphabet,min_length}`, `legacy_decoders`
+(previous encoders to try on a decode miss — encoder migration), `write.max_attempts`, `locale.{source,route_param,missing,fallback_locale}`,
 `reserved.{global,from_routes}`, `redirect.status` (the self-heal status, 301 by default),
 `gone.{status,redirect_status}`, `analytics.enabled`,
 `sitemap.types`, `types` (polymorphic registry).
@@ -74,8 +79,11 @@ decode miss — encoder migration), `write.max_attempts`, `locale.{source,route_
 
 `IdentityEncoder::encode(int|string): string` / `decode(string): int|string|null` (null → 404,
 never a fuzzy match). Built in: `RandomTokenEncoder` (**the default** — unguessable random
-token in `polyslug_tokens`, leak-free for integer keys), `SqidsEncoder` (obfuscation, not
-security: reversible, and it leaks the primary key, creation order and growth rate),
+token in `polyslug_tokens`, leak-free for integer keys), `SequentialTokenEncoder` (same
+store, filled by counting: the shortest token not yet taken — `0`, `1`, … `z`, then `00` — so
+the shortest URL there is, and completely predictable, which is the trade), `SqidsEncoder`
+(obfuscation, not security: reversible, and it leaks the primary key, creation order and
+growth rate),
 `UuidEncoder`, `UlidEncoder` (leaks creation time), `RawIdEncoder` (raw PK — internal only).
 Non-canonical tokens (wrong length, leading zeros, re-encoded alias) resolve to a clean 404, so
 each record has exactly one canonical URL. Migrate encoders without breaking links by listing
@@ -214,7 +222,26 @@ returning whichever row sorts first.
 
 ## Sitemaps & short links
 
-- Bind `Polyslug\Contracts\PolyslugUrlResolver` (model+locale → absolute URL); it feeds both:
+- **Bind `Polyslug\Contracts\PolyslugUrlResolver` FIRST** — one method, model+locale → absolute URL,
+  the one class the app writes itself because the package cannot know its routes. It feeds sitemaps,
+  short links AND the `laravel/head` tags. Skipping it is the most common setup mistake, and two of
+  the three fail **silently**: every `/go` link returns 404 (identical to an unknown token, so the
+  route is not an existence oracle) and the head tags are simply not written. Only
+  `polyslug:sitemap` names the contract. `polyslug:doctor` reports the binding.
+
+  ```php
+  // AppServiceProvider::register()
+  $this->app->bind(PolyslugUrlResolver::class, fn () => new class implements PolyslugUrlResolver {
+      public function url(Sluggable $model, string $locale): string
+      {
+          return route('pages.show', ['locale' => $locale, 'page' => $model->polyslugRouteKeyForLocale($locale)]);
+      }
+  });
+  ```
+
+  Use `polyslugRouteKeyForLocale($locale)`, not `getRouteKey()` — the latter answers for the CURRENT
+  locale and would emit the same URL for every language.
+
 - `php artisan polyslug:sitemap --path=public/sitemap.xml` — streams all `polyslug.sitemap.types` with hreflang alternates, honoring `polyslugIsRoutable()`.
 - `$model->shortLink()` + route `ShortLinkController` at `/go/{token}` — a stable token that 301s to the current canonical URL (survives renames).
 
@@ -225,6 +252,11 @@ returning whichever row sorts first.
   successor the requester may not see produces no redirect — you do NOT need to filter inside
   `polyslugSupersededBy()`. Use `polyslugResolveSelf()` for the same check on any model you obtained
   outside a resolution path and are about to disclose.
+- **Seeding vs claiming on a `reclaimActive` model.** `setSlug()`/`polyslugSync()` TAKE a name
+  another record still holds — right for a webhook, where the source already handed it over.
+  `seedSlug()`/`polyslugSeed()` YIELD — right for a backfill, where two existing records wanting
+  one name is a conflict in the data, not a handover. `polyslug:backfill` seeds. Identical on a
+  model that is not `reclaimActive`, so seeding is safe to use unconditionally.
 - Backfill: `php artisan polyslug:backfill "App\\Models\\Page" [--locale=de] [--queue] [--chunk=N]`.
   The model class is a REQUIRED argument, not an option — the command backfills one
   sluggable model at a time.
@@ -251,4 +283,8 @@ $this->assertSlugNotResolvable(Page::class, 'bad_token');
 - **The gate is not the scope.** `polyslugResolveQuery()` filters by what the ENVIRONMENT says is visible (session, tenant). A scope living in the URL (`/@owner/repo`) never reaches it, so on a slug-only model it separates nothing — use `polyslugResolutionScope()` for that.
 - The slug never identifies the model; binding uses the encoded id. A wrong slug still resolves, then redirects.
 - `idLess` requires globally-unique slugs per scope; retired slugs stay reserved by design.
+- **`maxLength` never shortens the token.** A long URL is usually the token, not the slug: set `polyslug.random_token.length` (default 16), or `encoderOptions: ['length' => 8]` for one model. Both are floors, not fixed widths.
+- **`polyslug_tokens` is keyed by `(morph type, id)` since 0.11.0** — `Page#1` and `Wishlist#1` hold different tokens, and a token addressed to another model type resolves to `null`. Upgrading runs a migration that backfills each token's owner, so published URLs survive; skipping it would mint a new token for every record. Scope `polyslugResolveQuery()` on anything that is not public regardless — it answers *may this viewer see this record*, which token separation does not.
+- **A counted token is numbered when its URL is first BUILT**, not when the record is saved. Ordinary traffic numbers records roughly in creation order; a bulk import that never renders a link numbers nothing. Use `polyslugPreload()` over the records in the order you want.
+- Run `polyslug:doctor` after changing a token length or alphabet: an unbuildable one otherwise first refuses while a URL is being rendered, in production.
 - Native Unicode mode assumes NFC-normalized input.

@@ -40,6 +40,83 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Token schemes — how a generated token looks
+    |--------------------------------------------------------------------------
+    |
+    | Two stores in this package hand out tokens: the identity token inside every URL
+    | (RandomTokenEncoder / SequentialTokenEncoder above) and the /go/{token} short
+    | link. Both draw from one of two schemes, and both read their settings here.
+    |
+    | 'length' is a FLOOR in both schemes, never a ceiling. A width whose space fills
+    | up yields to one character more rather than failing to issue a URL — so a short
+    | setting is a real choice and not a trap that surfaces months later as a 500 on
+    | a GET. 'alphabet' is null for the default base-36 set (0-9 a-z); pass your own
+    | to change the character set, which must be URL-unreserved and repeat nothing.
+    |
+    | RANDOM (the default) draws every token at random, so the URL says nothing about
+    | the record: not its key, not its age, not how many others exist. This is the
+    | scheme to keep whenever the URL is itself part of the access story — a share
+    | link, an unlisted page, anything enumeration-sensitive.
+    |
+    |     length   token space          example
+    |     4        ~1.7 million         /lists/k3f9
+    |     6        ~2.2 billion         /lists/k3f9dl
+    |     8        ~2.8 trillion        /lists/k3f9dlq7
+    |     10       ~3.7 quadrillion     /lists/k3f9dlq7xm
+    |     16       ~8.0 x 10^24         /lists/k3f9dlq7xm2bv4tc  (default)
+    |
+    | SEQUENTIAL hands out the shortest token not yet taken — 1, 2, … z, then 10, 11
+    | — which is the shortest URL that can exist for a given number of records, and
+    | what a link shortener is usually after. In exchange it is COMPLETELY
+    | PREDICTABLE: the token after k3f8 is k3f9, so the whole set can be walked, and
+    | the token reports how many records exist and roughly when this one appeared.
+    | Fine for public content nobody is hiding; wrong for anything the URL alone
+    | protects. A minimum length does not change that — it moves where the counting
+    | starts, it does not scatter what follows. Switch to it with:
+    |
+    |     'encoder' => Polyslug\Encoders\SequentialTokenEncoder::class,
+    |
+    | Changing either setting is safe at any time: tokens are stored, never recomputed
+    | from the key, so existing URLs keep resolving and only new records use the new
+    | setting.
+    |
+    */
+
+    'random_token' => [
+        'length' => 16,
+        'alphabet' => null,
+    ],
+
+    'sequential_token' => [
+        'length' => 1,
+        'alphabet' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Short links
+    |--------------------------------------------------------------------------
+    |
+    | The /go/{token} link produced by $model->shortLink(). It is a separate token
+    | space from the identity token above and takes its own scheme, because the two
+    | are used differently: a short link is printed, spoken and put on a QR code, so
+    | it is the one most likely to want 'sequential' and a small length.
+    |
+    | 'scheme' is 'random' or 'sequential'; 'length' and 'alphabet' mean exactly what
+    | they mean above. A null length takes the SCHEME's own default — 10 characters
+    | random, 1 counted — rather than one number for both, because ten random
+    | characters is a short link while ten counted ones is `0000000000`.
+    |
+    */
+
+    'short_links' => [
+        'scheme' => 'random',
+        'length' => null,
+        'alphabet' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Sqids options
     |--------------------------------------------------------------------------
     |

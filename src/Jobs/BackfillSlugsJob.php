@@ -36,7 +36,7 @@ final class BackfillSlugsJob implements ShouldQueue
 
         foreach ($model::query()->whereKey($this->keys)->get() as $row) {
             if ($row instanceof Sluggable && $row->currentSlug($this->locale) === null) {
-                $row->polyslugSync($this->locale);
+                $row->polyslugSeed($this->locale);
             }
         }
     }

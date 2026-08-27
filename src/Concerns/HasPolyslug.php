@@ -20,9 +20,14 @@ use Polyslug\Contracts\BulkIdentityEncoder;
 use Polyslug\Contracts\IdentityEncoder;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Contracts\SlugGenerator;
+use Polyslug\Contracts\StoresTokensPerRecord;
+use Polyslug\Contracts\TokenScheme;
+use Polyslug\Encoders\RandomTokenEncoder;
+use Polyslug\Encoders\SequentialTokenEncoder;
 use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Events\SlugChanged;
 use Polyslug\Events\SlugReclaimed;
+use Polyslug\Exceptions\CouldNotIssueToken;
 use Polyslug\Exceptions\CouldNotWriteSlug;
 use Polyslug\Models\PolyslugShortLink;
 use Polyslug\Models\PolyslugSlug;
@@ -32,6 +37,7 @@ use Polyslug\PolyslugConfigResolver;
 use Polyslug\Support\DeletionState;
 use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
+use Polyslug\Support\TokenAlphabet;
 
 /**
  * Gives an Eloquent model polymorphic, encoder-backed slugs. Declare the source with
@@ -42,6 +48,15 @@ use Polyslug\Support\SlugRequest;
  */
 trait HasPolyslug
 {
+    /**
+     * How many times shortLink() re-attempts a claim before giving up.
+     *
+     * Eight, matching the identity store, and for the same reason: a scheme that widens its
+     * output every three lost draws needs room for two widenings, after which the space is
+     * 1,296x the one that was full.
+     */
+    private const int POLYSLUG_SHORT_LINK_ATTEMPTS = 8;
+
     protected static function bootHasPolyslug(): void
     {
         static::saved(static function (Model $model): void {
@@ -97,7 +112,7 @@ trait HasPolyslug
      */
     public static function polyslugPreload(iterable $models): void
     {
-        /** @var array<int, array{encoder: BulkIdentityEncoder, keys: list<string>}> $batches */
+        /** @var array<string, array{encoder: BulkIdentityEncoder, type: string, keys: list<string>}> $batches */
         $batches = [];
 
         foreach ($models as $model) {
@@ -114,13 +129,34 @@ trait HasPolyslug
                 continue;
             }
 
-            $handle = spl_object_id($encoder);
-            $batches[$handle] ??= ['encoder' => $encoder, 'keys' => []];
+            // Grouped by encoder AND morph type, because a type-scoped store looks a key up
+            // under its owner: one batch spanning two types would ask for every key under the
+            // first one, find nothing, and turn the preload into the per-row queries it exists
+            // to remove.
+            // Non-empty for a stored-token encoder, since getMorphClass() always answers with
+            // a class name; the untyped lane below is reached by the encoder KIND, not by an
+            // empty type. A second `!== ''` test used to guard the branch and could never
+            // fire — a condition that cannot be false reads as a case that happens.
+            $type = $encoder instanceof StoresTokensPerRecord ? $model->getMorphClass() : '';
+            $handle = spl_object_id($encoder).'|'.$type;
+            $batches[$handle] ??= ['encoder' => $encoder, 'type' => $type, 'keys' => []];
             $batches[$handle]['keys'][] = $model->polyslugKeyString();
         }
 
         foreach ($batches as $batch) {
-            $batch['encoder']->encodeMany($batch['keys']);
+            $encoder = $batch['encoder'];
+
+            if ($encoder instanceof StoresTokensPerRecord) {
+                $encoder->encodeManyWithin($batch['type'], $batch['keys']);
+
+                continue;
+            }
+
+            // An encoder that batches but cannot hold an owner — the contract as it stood
+            // before 0.11. It keeps one shared space, which is what it always had, and this
+            // line is the compatibility promise StoresTokensPerRecord makes by EXTENDING
+            // IdentityEncoder instead of replacing it.
+            $encoder->encodeMany($batch['keys']);
         }
     }
 
@@ -132,10 +168,20 @@ trait HasPolyslug
     public function polyslugRouteKey(?string $locale = null): string
     {
         $locale ??= $this->polyslugLocale();
+        $config = $this->polyslugConfig();
+
+        // Token-only mode: the URL is the encoded identity alone, with no delimiter in front
+        // of it. The delimiter exists to separate two parts; with one part it is a character
+        // in every URL that says nothing — and on a model chosen for short URLs, a character
+        // that says nothing is the whole cost of the feature.
+        if ($config->slugless) {
+            return $this->polyslugEncodedKey();
+        }
+
         $path = $this->polyslugPath($locale);
 
         // Slug-only mode: the URL is the slug/path alone, no "_{encodedId}".
-        if ($this->polyslugConfig()->idLess) {
+        if ($config->idLess) {
             return $path;
         }
 
@@ -170,18 +216,58 @@ trait HasPolyslug
         return $prefix === '' ? $own : $prefix.'/'.$own;
     }
 
+    /**
+     * The stable /go/{token} short link for this model in one locale, issued on first use.
+     *
+     * Its own token space, drawn from the bound TokenScheme — `polyslug.short_links` — so a
+     * printed or spoken link can be short and counted while the identity token inside every
+     * URL stays long and unguessable, or the other way round.
+     *
+     * CLAIMED IN A LOOP rather than through firstOrCreate, and that is what makes a short
+     * setting usable here at all. The table carries two unique indexes, and firstOrCreate
+     * only ever recovers from one of them: it retries by re-reading the TARGET, so a row
+     * rejected because another record already holds that TOKEN finds nothing on the re-read
+     * and surfaces as a query exception — at 10 random characters that is unreachable, at
+     * four it is a matter of time, and it would land while a page is being rendered.
+     */
     public function shortLink(?string $locale = null): string
     {
         $locale ??= $this->polyslugLocale();
 
-        return PolyslugShortLink::query()->firstOrCreate(
-            [
-                'sluggable_type' => $this->getMorphClass(),
-                'sluggable_id' => $this->polyslugKeyString(),
-                'locale' => $locale,
-            ],
-            ['token' => Str::lower(Str::random(10))],
-        )->token;
+        $target = [
+            'sluggable_type' => $this->getMorphClass(),
+            'sluggable_id' => $this->polyslugKeyString(),
+            'locale' => $locale,
+        ];
+
+        $scheme = Container::getInstance()->make(TokenScheme::class);
+
+        for ($attempt = 0; $attempt < self::POLYSLUG_SHORT_LINK_ATTEMPTS; $attempt++) {
+            $existing = PolyslugShortLink::query()->where($target)->value('token');
+
+            if (is_string($existing)) {
+                return $existing;
+            }
+
+            $token = $scheme->draw($attempt, static function (): int {
+                // A lower bound on how many short links exist, from the highest row id — the
+                // same hint the identity store uses, and only a counted scheme ever asks.
+                $max = PolyslugShortLink::query()->max('id');
+
+                return is_numeric($max) ? (int) $max : 0;
+            });
+
+            if (PolyslugShortLink::query()->insertOrIgnore([...$target, 'token' => $token, 'created_at' => Carbon::now(), 'updated_at' => Carbon::now()]) > 0) {
+                return $token;
+            }
+
+            // Zero rows means one of the two unique indexes refused: another writer claimed
+            // this target (the next pass reads their token and returns it) or another record
+            // already holds this token (the next pass asks the scheme for the next one).
+            // Which one it was is not knowable portably here, and looping answers both.
+        }
+
+        throw new CouldNotIssueToken($this->polyslugKeyString(), self::POLYSLUG_SHORT_LINK_ATTEMPTS);
     }
 
     private function polyslugSlugForRouteKey(string $locale): ?string
@@ -203,14 +289,42 @@ trait HasPolyslug
 
     public function polyslugSync(?string $locale = null): void
     {
-        $config = $this->polyslugConfig();
+        $this->polyslugWriteFromSource($this->polyslugConfig(), $locale);
+    }
+
+    /**
+     * Sync WITHOUT taking a name another record still holds — the backfill counterpart.
+     *
+     * ⚠️ ON THE Sluggable CONTRACT, which makes this a breaking change for a consumer that
+     * implements the interface WITHOUT taking this trait. It was trait-only first, and the
+     * package's own backfill is what settled it: a capability the contract does not carry
+     * cannot be called on anything typed as Sluggable — not by a consumer, and not by this
+     * package. Half a capability is worse than a named break in a release that already
+     * carries one. A model using the trait needs no change.
+     *
+     * Same relationship to polyslugSync() that {@see seedSlug()} has to setSlug(), and the
+     * package's own `polyslug:backfill` uses this one. Running a backfill over existing rows
+     * of a `reclaimActive` model would otherwise hand one record's name to another purely by
+     * the order the rows came back, and report nothing.
+     */
+    public function polyslugSeed(?string $locale = null): void
+    {
+        $this->polyslugWriteFromSource($this->polyslugConfig()->withoutActiveReclaim(), $locale);
+    }
+
+    private function polyslugWriteFromSource(PolyslugConfig $config, ?string $locale): void
+    {
         $locale ??= $this->polyslugLocale();
 
         // fresh: a write decides against what is current NOW, never against a collection
         // loaded before this request touched anything.
         $current = $this->currentSlugRow($locale, fresh: true);
 
-        if ($current !== null && ($config->immutable || ! $this->wasChanged($config->source))) {
+        // A slugless model has one possible slug — the empty one — so once a row exists for
+        // this locale there is nothing a save could change. Named rather than left to the
+        // wasChanged() test below, which reads an EMPTY column list as "did anything change
+        // at all" and would therefore re-run the whole write path on every unrelated update.
+        if ($current !== null && ($config->slugless || $config->immutable || ! $this->wasChanged($config->source))) {
             return;
         }
 
@@ -223,6 +337,36 @@ trait HasPolyslug
     public function setSlug(string $locale, ?string $source = null): void
     {
         $config = $this->polyslugConfig();
+
+        $this->writeSlug($locale, $source ?? $this->polyslugSource($config), $config);
+    }
+
+    /**
+     * Write a slug WITHOUT taking a name another record still holds.
+     *
+     * The seeding counterpart to setSlug(), and the distinction is not stylistic. On a model
+     * with `reclaimActive: true`, setSlug() retires whoever currently holds the name — right
+     * for a webhook, where the source has already handed the name over and that handover IS
+     * the truth. It is wrong for a backfill: two existing records wanting one name are a
+     * conflict in the data, not a handover, and taking there decides ownership by row order
+     * while nobody finds out.
+     *
+     * So this one lets the holder block. The newcomer gets a counter suffix, or — on an
+     * idLess model, where a suffix would change the URL's meaning — the write refuses with
+     * CouldNotWriteSlug. Both are reports; neither is a silent reassignment.
+     *
+     * A NAMED METHOD rather than a boolean on setSlug(), for a reason that outlives the
+     * choice: reclaimActive requires `reclaim`, so a flag could only ever turn the behavior
+     * OFF. A parameter whose `true` means "do what the model already said" is a trap, and the
+     * one place the difference matters is the call site — which is exactly what a name shows
+     * and a boolean hides.
+     *
+     * On a model without `reclaimActive` this is identical to setSlug(), and saying so is the
+     * point: a consumer can seed unconditionally without asking how each model is configured.
+     */
+    public function seedSlug(string $locale, ?string $source = null): void
+    {
+        $config = $this->polyslugConfig()->withoutActiveReclaim();
 
         $this->writeSlug($locale, $source ?? $this->polyslugSource($config), $config);
     }
@@ -417,9 +561,10 @@ trait HasPolyslug
                     'slug' => $desired,
                     'is_current' => true,
                     // A non-idLess unique:false model opts its rows out of the current_unique
-                    // index so records may share a slug (the id in the URL disambiguates).
+                    // index so records may share a slug (the id in the URL disambiguates), and
+                    // so does a slugless model, whose slug is empty for every record.
                     // idLess is always unique (enforced by MisconfiguredPolyslug at config time).
-                    'enforce_unique' => $config->unique,
+                    'enforce_unique' => $config->enforcesUniqueSlug(),
                     'created_at' => Carbon::now(),
                     'updated_at' => Carbon::now(),
                 ]);
@@ -536,6 +681,10 @@ trait HasPolyslug
     {
         $routeValue = is_scalar($value) ? (string) $value : '';
 
+        if ($this->polyslugConfig()->slugless) {
+            return $this->resolveSluglessRouteBinding($routeValue);
+        }
+
         [$slug, $encodedId] = Polyslug::split($routeValue);
 
         if ($encodedId === null || $encodedId === '') {
@@ -550,6 +699,37 @@ trait HasPolyslug
         }
 
         return $this->polyslugResolveByKey($id);
+    }
+
+    /**
+     * Resolve a token-only URL — the whole value is the token, because there is no slug in
+     * front of it to split off.
+     *
+     * IT STILL ACCEPTS THE OLD DESCRIPTIVE URL, and that is the point of the second pass
+     * rather than an indulgence. Switching an existing model to slugless would otherwise
+     * turn every published `my-title_TOKEN` link into a 404 — including links in print,
+     * in other people's pages, and in a search index. Falling back to the part after the
+     * last delimiter resolves those, and the canonical middleware then 301s the visitor
+     * to the short form, so old links self-heal exactly as they do across an encoder
+     * change.
+     *
+     * The canonical form is tried FIRST, so an ordinary hit costs one decode. Trying the
+     * legacy shape on a token that has no delimiter would be a second decode on every
+     * request for nothing; trying it first would ask the encoder to decode a string that
+     * is not a token, which every shipped encoder answers with null anyway — a round trip
+     * spent proving what the shape already said.
+     */
+    private function resolveSluglessRouteBinding(string $routeValue): ?static
+    {
+        $id = $this->polyslugDecode($routeValue);
+
+        if ($id === null) {
+            [, $legacy] = Polyslug::split($routeValue);
+
+            $id = $legacy === null || $legacy === '' ? null : $this->polyslugDecode($legacy);
+        }
+
+        return $id === null ? null : $this->polyslugResolveByKey($id);
     }
 
     /**
@@ -698,7 +878,16 @@ trait HasPolyslug
      */
     private function polyslugDecode(string $encodedId): int|string|null
     {
-        $id = $this->polyslugEncoder()->decode($encodedId);
+        $encoder = $this->polyslugEncoder();
+
+        // Scoped to this model's type where the encoder can scope. A token belonging to a
+        // DIFFERENT model type then decodes to null — a clean 404 — rather than to an id this
+        // model would resolve against its own table. The legacy decoders below stay untyped:
+        // they exist to keep URLs from a previous encoder alive, and those tokens never had
+        // an owner to check against.
+        $id = $encoder instanceof StoresTokensPerRecord
+            ? $encoder->decodeWithin($this->getMorphClass(), $encodedId)
+            : $encoder->decode($encodedId);
 
         if ($id !== null) {
             return $id;
@@ -853,12 +1042,85 @@ trait HasPolyslug
             );
         }
 
+        // Per-model token settings, so one model can have short URLs without every model
+        // paying for it — a public list whose URL people retype is a different problem from
+        // a share link that has to survive being guessed at, and both can live in one app.
+        if ($config->encoderOptions !== [] && ($instance instanceof RandomTokenEncoder || $instance instanceof SequentialTokenEncoder)) {
+            return $this->polyslugTokenEncoder($instance, $config->encoderOptions);
+        }
+
         return $instance;
     }
 
+    /**
+     * The shared stored-token encoder for a given set of per-model options.
+     *
+     * Shared rather than constructed per call, and the reason is the same one that makes the
+     * container bindings singletons: these encoders memoize what they have read, so a fresh
+     * instance per call means one query per rendered row and a polyslugPreload() that fills a
+     * memo nobody reads. The Sqids branch above can build freely because a Sqid is computed
+     * from the key and holds nothing.
+     *
+     * Kept in the CONTAINER rather than in a static property on the trait, because a static
+     * would outlive the request under a resident runtime (Octane) and grow a token memo that
+     * nothing ever clears. The container is flushed between requests; a static is not.
+     *
+     * An option this encoder does not understand leaves it alone: the container-bound
+     * instance is already configured from the application's own settings, so "no per-model
+     * override" and "an override that says nothing" must land on the same object.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    private function polyslugTokenEncoder(RandomTokenEncoder|SequentialTokenEncoder $instance, array $options): IdentityEncoder
+    {
+        $length = $options['length'] ?? null;
+        $alphabet = $options['alphabet'] ?? null;
+
+        if (! is_int($length) && ! is_string($alphabet)) {
+            return $instance;
+        }
+
+        // The length falls back to the one the ENCODER already carries, not to the class
+        // default: an override that names only an alphabet is asking to change the alphabet,
+        // and silently resetting the length to 16 would undo the application's own setting
+        // while looking like it did nothing.
+        $class = $instance::class;
+        $width = is_int($length) ? $length : $instance->scheme()->length();
+        $container = Container::getInstance();
+        $key = $class.':'.$width.':'.(is_string($alphabet) ? $alphabet : '');
+
+        if (! $container->bound($key)) {
+            $container->instance($key, new $class(
+                $width,
+                is_string($alphabet) ? new TokenAlphabet($alphabet) : null,
+            ));
+        }
+
+        // The key is written nowhere else and only ever with this type, so the annotation
+        // states a fact rather than asking to be trusted. A runtime re-check here would be a
+        // branch no run can enter, and the gate demands every line be reachable.
+        /** @var IdentityEncoder $encoder */
+        $encoder = $container->make($key);
+
+        return $encoder;
+    }
+
+    /**
+     * This record's token.
+     *
+     * The morph type goes with it whenever the encoder can hold one. A stored-token encoder
+     * then keeps a space per type, so Page#1 and Wishlist#1 no longer share a token — and one
+     * model's URL no longer yields another model's URL for the same id. A computed encoder
+     * (Sqids, UUID, ULID, the raw key) derives its token from the key alone and cannot be
+     * given an owner, which is why the capability is asked for rather than assumed.
+     */
     private function polyslugEncodedKey(): string
     {
-        return $this->polyslugEncoder()->encode($this->polyslugKeyString());
+        $encoder = $this->polyslugEncoder();
+
+        return $encoder instanceof StoresTokensPerRecord
+            ? $encoder->encodeWithin($this->getMorphClass(), $this->polyslugKeyString())
+            : $encoder->encode($this->polyslugKeyString());
     }
 
     private function polyslugKeyString(): string
@@ -933,7 +1195,7 @@ trait HasPolyslug
 
             // The cast states the intent; it does not change the result. Concatenation coerces
             // every scalar to the same string either way, so this is for the reader and the
-            // analyser rather than for the key.
+            // analyzer rather than for the key.
             $parts[] = $column.':'.(is_scalar($value) ? (string) $value : '');
         }
 
