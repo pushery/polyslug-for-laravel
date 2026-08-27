@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Polyslug\Support;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * Whether a model is being permanently removed. Lives outside the trait so the
@@ -18,7 +17,13 @@ final class DeletionState
     public static function isForceDeleting(Model $model): bool
     {
         // A model without SoftDeletes has no soft state: delete() is always permanent.
-        if (! in_array(SoftDeletes::class, class_uses_recursive($model), true)) {
+        //
+        // The framework's own check rather than our copy of it. Model::isSoftDeletable()
+        // exists at the declared illuminate/database floor and memoizes per class in a
+        // static, so a bulk delete stops re-running class_uses_recursive() once per row —
+        // and the rule for what counts as soft-deletable stops being maintained in two
+        // places, one of which is this package.
+        if (! $model::isSoftDeletable()) {
             return true;
         }
 

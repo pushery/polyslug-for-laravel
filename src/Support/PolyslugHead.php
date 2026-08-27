@@ -6,6 +6,7 @@ namespace Polyslug\Support;
 
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Laravel\Head\CurrentHead;
 use Laravel\Head\HeadManager;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
@@ -48,7 +49,23 @@ final class PolyslugHead
         // The $routeKey argument is deliberately unused: the resolver derives the key
         // from the model and locale itself (its contract says so). Routing every URL
         // through the one resolver is what makes canonical, hreflang and the sitemap
-        // incapable of disagreeing.
+        // unable to disagree about WHICH ADDRESS a record has.
+        //
+        // Not about its FORM, and the difference is measurable rather than pedantic:
+        // laravel/head normalizes the canonical it is handed — Canonical::render() runs
+        // normalizeUrl() on an explicitly passed URL too, defaulting to forceHttps: true
+        // and trailingSlash: false, and a host can flip either through Head::defaults().
+        // alternates() emits its hrefs verbatim, and polyslug:sitemap never sees
+        // laravel/head at all. A resolver that returns http:// or a trailing slash
+        // therefore yields a canonical that differs in form from the SELF-referencing
+        // hreflang for the same page.
+        //
+        // Left as it is rather than "fixed": matching it would mean reimplementing
+        // Canonical::normalizeUrl inside a package that must not depend on laravel/head,
+        // and it still could not reach the sitemap command. A resolver built on route()
+        // or url() over https — which is what an application in production has — produces
+        // no divergence at all. The honest move is to say so, and to pin it in a test so
+        // the claim cannot quietly widen again.
         $urlUsing = static fn (string $each, string $routeKey): string => $resolver->url($model, $each);
 
         $urls = $model->polyslugUrls($urlUsing);
@@ -83,10 +100,27 @@ final class PolyslugHead
         $head->canonical($resolver->url($model, $locale))
             ->og(locale: self::openGraphLocale($locale));
 
+        $alternates = [];
+
         foreach (array_keys($urls) as $each) {
             if ($each !== $locale) {
-                $head->meta('og:locale:alternate', self::openGraphLocale($each), property: true);
+                $alternates[] = self::openGraphLocale($each);
             }
+        }
+
+        if ($alternates !== []) {
+            // NOT $head->meta('og:locale:alternate', …) once per locale, which is what
+            // this did until it was measured: MetaTags keys by attribute|key|media, so
+            // every call after the first REPLACED its predecessor and a four-locale page
+            // shipped one alternate. Nothing was red — every arm here ran two locales,
+            // which is the one count at which a collision cannot be seen.
+            //
+            // CurrentHead is the request-scoped store HeadManager::headData() itself
+            // reads; going through the container rather than the manager keeps this a
+            // public-API call, where headData() is protected.
+            $container->make(CurrentHead::class)
+                ->data()
+                ->overlayBuilder(new PolyslugOpenGraphLocales($alternates));
         }
 
         return $head;

@@ -168,8 +168,12 @@ Or in Blade: `@polyslugHreflang($page, $resolver)`.
 If `laravel/head` is installed, let it own the `<head>` instead of rendering tags yourself.
 `Head::polyslug($model)` writes ONLY what Polyslug is the authority on — canonical URL (from
 the bound `PolyslugUrlResolver`, not the request), the reciprocal hreflang set, `og:locale`
-plus alternates, and `robots: none` when `polyslugIsRoutable()` is false. Title, description,
-cards and JSON-LD stay yours.
+plus one `og:locale:alternate` per other locale, and `robots: none` when
+`polyslugIsRoutable()` is false. Title, description, cards and JSON-LD stay yours.
+
+`laravel/head` needs **Laravel 13.17+** — its own floor, not Polyslug's, which is 13.0. On an
+application pinned below that, Composer refuses the install; everything else in Polyslug works
+unchanged.
 
 ```php
 Head::polyslug($article)->title($article->title)->description($article->excerpt);
@@ -183,6 +187,9 @@ slug renders and that tag names the outdated URL as canonical.
 
 Requires a bound `PolyslugUrlResolver` for the URL tags; without one it writes only the robots
 directive rather than guessing a URL shape.
+
+`Route::polyslug()` works at both chain positions — bare, and after `middleware()`, `prefix()`
+or `name()`.
 
 ## Nested (hierarchical) slugs
 

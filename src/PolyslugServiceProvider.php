@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug;
 
+use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Foundation\Application;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\Router;
+use Illuminate\Routing\RouteRegistrar;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
 use InvalidArgumentException;
@@ -30,6 +32,7 @@ use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Generators\DefaultSlugGenerator;
 use Polyslug\Http\Middleware\EnsureCanonicalSlug;
 use Polyslug\Support\PolyslugHead;
+use Polyslug\Support\PolyslugOpenGraphLocales;
 use Polyslug\Support\RandomTokenScheme;
 use Polyslug\Support\SequentialTokenScheme;
 use Polyslug\Support\TokenAlphabet;
@@ -182,7 +185,27 @@ final class PolyslugServiceProvider extends ServiceProvider
 
         // Route::polyslug('/pages/{page}', ...) wires SubstituteBindings THEN polyslug.canonical
         // in the correct order, so self-heal can never silently no-op from a mis-ordered stack.
-        $router->macro('polyslug', fn (string $uri, array|string|callable|null $action = null): Route => $router->get($uri, $action)->middleware([SubstituteBindings::class, 'polyslug.canonical']));
+        //
+        // $action is Closure|array|string|null rather than `callable`, which is what this
+        // said before and was wider than the framework. The one callable shape that is
+        // none of those three — an invokable OBJECT — does not reach a controller: it
+        // fatals inside Router::createRoute with "Cannot use object of type ... as array"
+        // at REGISTRATION time. Advertising it was an invitation to a fatal, and it is
+        // also the type RouteRegistrar declares for its own get(), so both chain
+        // positions now say the same thing.
+        $router->macro('polyslug', fn (string $uri, array|string|Closure|null $action = null): Route => $router->get($uri, $action)->middleware([SubstituteBindings::class, 'polyslug.canonical']));
+
+        // And on the REGISTRAR, because Macroable declares $macros inside the trait: Router
+        // and RouteRegistrar keep separate bags, so registering on one leaves the other
+        // throwing BadMethodCallException. RouteRegistrar is what every chained form lands
+        // on — Route::middleware(...)->polyslug(...), Route::prefix(...)->polyslug(...) —
+        // and that is the shape a consumer reaches for the moment the route needs auth or a
+        // prefix. `get` is a passthru verb there and returns the Route, so the body is the
+        // same one line and the group's own attributes are preserved.
+        RouteRegistrar::macro('polyslug', function (string $uri, array|string|Closure|null $action = null): Route {
+            /** @var RouteRegistrar $this */
+            return $this->get($uri, $action)->middleware([SubstituteBindings::class, 'polyslug.canonical']);
+        });
 
         Blade::directive(
             'polyslugHreflang',
@@ -221,6 +244,23 @@ final class PolyslugServiceProvider extends ServiceProvider
                 /** @var HeadManager $this */
                 return PolyslugHead::apply($this, $model, $locale);
             });
+
+            // og:locale:alternate is the one Open Graph property a multilingual page
+            // repeats, and laravel/head's meta() cannot repeat a key — it stores tags in
+            // an array keyed by attribute|key|media, so the second call overwrites the
+            // first. TagRegistry::extend() is the sanctioned answer, and the only one:
+            // both render paths iterate the REGISTRY, so a builder that is not registered
+            // is never rendered no matter what data it holds.
+            //
+            // callAfterResolving, not make(): laravel/head may register after this
+            // provider boots, and forcing HeadManager into existence here would resolve a
+            // singleton the request may never use. It also covers the opposite order —
+            // the callback fires immediately when the manager is already resolved. The
+            // registration is idempotent on laravel/head's side.
+            $this->callAfterResolving(
+                HeadManager::class,
+                static fn (HeadManager $head): HeadManager => $head->extend(PolyslugOpenGraphLocales::class),
+            );
         }
     }
 
