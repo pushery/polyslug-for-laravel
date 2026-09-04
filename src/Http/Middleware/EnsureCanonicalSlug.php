@@ -117,9 +117,10 @@ final class EnsureCanonicalSlug
     {
         // Rebuild each sluggable parameter for the REQUEST's locale (not the ambient app
         // locale), so a /{locale}/... URL redirects to that locale's slug, not another's.
+        //
         $parameters = [];
 
-        foreach ($route->parameters() as $name => $value) {
+        foreach ($this->declaredParameters($route) as $name => $value) {
             $parameters[$name] = $value instanceof Sluggable
                 ? $value->polyslugRouteKeyForLocale($locale)
                 : $value;
@@ -242,7 +243,7 @@ final class EnsureCanonicalSlug
     {
         $parameters = [];
 
-        foreach ($route->parameters() as $name => $value) {
+        foreach ($this->declaredParameters($route) as $name => $value) {
             if ($name === $supersededParam) {
                 $parameters[$name] = $successor->polyslugRouteKeyForLocale($locale);
             } elseif ($value instanceof Sluggable) {
@@ -253,6 +254,54 @@ final class EnsureCanonicalSlug
         }
 
         return Container::getInstance()->make(UrlGenerator::class)->toRoute($route, $parameters, true);
+    }
+
+    /**
+     * The bound route parameters the route's own URI actually DECLARES.
+     *
+     * `$route->parameters()` is not that list. Laravel's RouteParameterBinder folds every
+     * route DEFAULT into the bound parameters, including keys the URI never mentions:
+     *
+     *     Route::get('pages/{page}', ...)->defaults('locale', 'en');
+     *     // $route->parameters() === ['page' => <Page>, 'locale' => 'en']
+     *
+     * `UrlGenerator::toRoute()` cannot place `locale` in the path, so it appends it to the
+     * QUERY STRING. Both URL builders in this middleware then emitted `/pages/canonical?locale=en`
+     * — and where the request carried a query string of its own, `?locale=en?ref=news`, which
+     * is not a valid URL at all.
+     *
+     * That is the exact opposite of this middleware's purpose. A canonical redirect is where
+     * an address is declared binding; a parameter welded onto it creates a SECOND address for
+     * the same page, for every renamed row at once.
+     *
+     * Filtering is lossless: a parameter the URI does not declare cannot contribute to the
+     * path, it can only lengthen it. Locale resolution is untouched — `requestLocale()` reads
+     * the same source earlier and independently.
+     *
+     * Used by BOTH builders on purpose. The self-heal redirect is where this was reported;
+     * `successorUrl()` had it too, and a fix applied only where a defect was noticed leaves
+     * its twin in place.
+     *
+     * Keyed `array-key` rather than `string` because that is all the framework promises:
+     * both `parameters()` and `parameterNames()` are annotated bare `array`. Route parameter
+     * names are strings in practice, but claiming it here would be an assertion this code
+     * cannot support, and neither caller needs it — both use the key as an array key and one
+     * compares it against a string, which behaves correctly either way.
+     *
+     * @return array<array-key, mixed>
+     */
+    private function declaredParameters(Route $route): array
+    {
+        $declared = $route->parameterNames();
+        $parameters = [];
+
+        foreach ($route->parameters() as $name => $value) {
+            if (in_array($name, $declared, true)) {
+                $parameters[$name] = $value;
+            }
+        }
+
+        return $parameters;
     }
 
     private function configuredStatus(string $key, int $default): int

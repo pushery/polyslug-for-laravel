@@ -10,6 +10,7 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
+use Polyslug\Polyslug;
 
 final class SitemapCommand extends Command
 {
@@ -68,8 +69,10 @@ final class SitemapCommand extends Command
 
     private function entry(Sluggable $model, PolyslugUrlResolver $resolver): ?string
     {
+        // Same source as polyslugUrls(), deliberately: the sitemap and the hreflang set in the
+        // page head must not be able to disagree about which addresses a record has.
         $locales = array_values(array_filter(
-            $model->slugLocales(),
+            Polyslug::announcedLocales($model, $model->slugLocales(...)),
             $model->polyslugIsRoutable(...),
         ));
 

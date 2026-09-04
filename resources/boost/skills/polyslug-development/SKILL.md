@@ -163,6 +163,28 @@ $page->hreflangTags(fn (string $locale, string $key) => route('pages.show', [$lo
 
 Or in Blade: `@polyslugHreflang($page, $resolver)`.
 
+**If ONE slug is served under SEVERAL addresses, say so — nothing else can infer it.** The
+hreflang set and the sitemap are both built from `slugLocales()`, which answers "which locales
+hold slug text". Where a project pins each slug to one locale on purpose and still routes every
+record under a locale prefix (`/u/lena` and `/de/u/lena`), that list has one entry forever, and
+the second address is announced nowhere. Nothing fails — it is simply never discoverable, and
+hreflang cannot rescue it because a crawler reads that only after fetching the page.
+
+```php
+final class Account extends Model implements ProvidesAddressLocales, Sluggable
+{
+    use HasPolyslug;
+
+    public function polyslugAddressLocales(): array
+    {
+        return ['en', 'de'];
+    }
+}
+```
+
+Opt-in, like `BulkIdentityEncoder`: without the interface nothing changes. The locale with no
+slug of its own reuses the default locale's, which is what lets one slug serve both addresses.
+
 ## `laravel/head` (optional) {#laravel-head}
 
 If `laravel/head` is installed, let it own the `<head>` instead of rendering tags yourself.

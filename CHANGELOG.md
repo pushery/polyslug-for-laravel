@@ -4,6 +4,36 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-09-04
+
+### Added
+- **`ProvidesAddressLocales` — for a record served under more addresses than it has slugs.** Every URL set Polyslug builds (`polyslugUrls()`, the hreflang links and tags, the `<head>` tags, the `polyslug:sitemap` entries) came from `slugLocales()`, the locales that hold slug text. That's the right list for most models, and the wrong one as soon as a single slug is served under several addresses — a project that pins each slug to one locale on purpose, because slug sources are single-language user content, and still routes every record under a locale prefix. `slugLocales()` reports one entry there forever, so `/de/u/lena` appeared in no sitemap and in no hreflang set, and nothing failed to say so.
+
+  Implement the interface to declare the addresses, and both lists follow, because both are built from the same call:
+
+  ```php
+  final class Account extends Model implements ProvidesAddressLocales, Sluggable
+  {
+      use HasPolyslug;
+
+      public function polyslugAddressLocales(): array
+      {
+          return ['en', 'de'];
+      }
+  }
+  ```
+
+  Opt-in, like `BulkIdentityEncoder`: a model that does not implement it keeps deriving its locales from its slug rows, unchanged. A declared locale still passes through `polyslugIsRoutable()`, and one with no slug of its own reuses the default locale's — which is what lets a single slug serve several addresses.
+
+### Fixed
+- **A route default no longer ends up in the canonical redirect.** A route that pins a default its own URI never declares — `Route::get('pages/{page}', …)->defaults('locale', 'en')`, which is how a locale-aware application serves the default language under the clean unprefixed URL — had that value welded onto every redirect this middleware issued: `/pages/canonical?locale=en`. Where the request carried a query string of its own the result was `?locale=en?ref=news`, which isn't a valid URL. Bound route parameters include every route default, and a named parameter the path cannot hold is appended to the query string instead; only the parameters the route declares are passed now.
+
+  This affected both redirects, the self-healing one and the supersede one, and it touched every renamed row of every model at once. The canonical redirect is where an address is declared binding, so a stray parameter there was creating a second address for the same page. A parameter the route really does declare is unaffected and still appears in the path, and a query string the client sent is still carried over unchanged.
+
+- **Eager-loading `slugs` works on PostgreSQL.** `Page::query()->with('slugs')->get()` is the documented way to collapse the per-model slug reads, and on PostgreSQL it failed the whole query with `operator does not exist: character varying = integer`. `sluggable_id` is a varchar, because a polymorphic key has to hold UUIDs and ULIDs as well as integers, and Eloquent writes the keys of an integer-keyed model straight into the statement text rather than binding them — so the comparison was varchar against a bare integer literal, which PostgreSQL has no operator for. The keys are bound now.
+
+  Reading a slug without eager-loading was never affected, which is why this survived a release: a single bound `where "sluggable_id" = ?` compares cleanly, so the only broken path was the one that makes a list view cheap. MySQL and SQLite were never affected either — both compare across the two types on their own. If you are on PostgreSQL and dropped `with('slugs')` to get a page working again, you can put it back.
+
 ## [0.12.0] - 2026-08-27
 
 ### Added
