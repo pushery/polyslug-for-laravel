@@ -49,5 +49,6 @@ final class Polyslug
         public bool $reclaim = false,
         public bool $reclaimActive = false,
         public bool $slugless = false,
+        public bool $preserveCase = false,
     ) {}
 }

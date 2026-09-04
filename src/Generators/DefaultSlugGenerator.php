@@ -51,9 +51,11 @@ final class DefaultSlugGenerator implements SlugGenerator
 
     private function slugify(string $source, PolyslugConfig $config): string
     {
-        $slug = $config->unicode === 'native'
-            ? $this->slugifyNative($source, $config->separator)
-            : Str::slug($source, $config->separator, $config->transliterate->language());
+        $slug = match (true) {
+            $config->unicode === 'native' => $this->slugifyNative($source, $config->separator),
+            $config->preserveCase => $this->slugifyPreservingCase($source, $config),
+            default => Str::slug($source, $config->separator, $config->transliterate->language()),
+        };
 
         if ($config->maxLength !== null && mb_strlen($slug) > $config->maxLength) {
             $slug = trim(mb_substr($slug, 0, $config->maxLength), $config->separator);
@@ -70,6 +72,40 @@ final class DefaultSlugGenerator implements SlugGenerator
         }
 
         return $slug;
+    }
+
+    /**
+     * The ASCII slugify of `Str::slug()`, minus the one thing it does not let you turn off.
+     *
+     * `Str::slug()` folds as part of stripping characters, and takes no flag for it — so a
+     * model that wants to keep the writing its owner chose (`Octo-Org`, a mirrored handle)
+     * needs the same transformation without that call. Transliterate first, then reduce every
+     * run of non-(letter/number) to a single separator, which is what is left of `Str::slug()`
+     * once the fold is removed.
+     *
+     * ⚠️ A SECOND IMPLEMENTATION IS A SECOND THING TO GET WRONG, so it is held to the first:
+     * a test asserts that lower-casing this result lands exactly on what `Str::slug()` emits
+     * for the same source. Nothing here may drift into producing a different SHAPE — the only
+     * difference this method is allowed to make is the case.
+     *
+     * Safe only because `unicode: 'ascii'` transliterates: every character that survives is
+     * ASCII, so the case-insensitive unique index folds it the same way on every engine. The
+     * config refuses `preserveCase` together with `unicode: 'native'` for exactly that reason.
+     */
+    private function slugifyPreservingCase(string $source, PolyslugConfig $config): string
+    {
+        $ascii = Str::ascii($source, $config->transliterate->language());
+
+        // `Str::slug()` runs a dictionary before it strips, and its default maps `@` to `at`.
+        // Leaving it out is not a cosmetic difference: `Me@Example` would become `Me-Example`
+        // here and `me-at-example` on the ordinary path, so the same source would produce two
+        // different slugs depending on a flag that is only supposed to change the case. The
+        // drift test found this exact case; it is the reason that test exists.
+        $ascii = str_replace('@', $config->separator.'at'.$config->separator, $ascii);
+
+        $slug = preg_replace('/[^\p{L}\p{N}]+/u', $config->separator, $ascii) ?? '';
+
+        return trim($slug, $config->separator);
     }
 
     /**
