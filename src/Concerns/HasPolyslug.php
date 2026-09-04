@@ -34,6 +34,7 @@ use Polyslug\Models\PolyslugSlug;
 use Polyslug\Polyslug;
 use Polyslug\PolyslugConfig;
 use Polyslug\PolyslugConfigResolver;
+use Polyslug\Relations\StringKeyedMorphMany;
 use Polyslug\Support\DeletionState;
 use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
@@ -77,7 +78,24 @@ trait HasPolyslug
      */
     public function slugs(): MorphMany
     {
-        return $this->morphMany(PolyslugSlug::class, 'sluggable');
+        // Deliberately NOT `$this->morphMany(...)`. That would hand back a plain MorphMany,
+        // whose eager constraint inlines integer keys into the SQL text and cannot compare
+        // against the varchar `sluggable_id` on PostgreSQL — see StringKeyedMorphMany.
+        //
+        // Built here rather than by overriding `newMorphMany()`, because that hook is shared:
+        // overriding it would silently change every OTHER morphMany on a consumer's model too.
+        $instance = $this->newRelatedInstance(PolyslugSlug::class);
+
+        // The morph column names are written out rather than derived through `getMorphs()`:
+        // this package ships the migration that creates them, so they are fixed, and the
+        // helper's signature does not accept the nulls that asking it for the defaults needs.
+        return new StringKeyedMorphMany(
+            $instance->newQuery(),
+            $this,
+            $instance->qualifyColumn('sluggable_type'),
+            $instance->qualifyColumn('sluggable_id'),
+            $this->getKeyName(),
+        );
     }
 
     /**
@@ -425,7 +443,9 @@ trait HasPolyslug
     {
         $urls = [];
 
-        foreach ($this->slugLocales() as $locale) {
+        // The ANNOUNCED locales, which are the slug locales unless the model declares
+        // otherwise — see Polyslug::announcedLocales() and the ProvidesAddressLocales contract.
+        foreach (Polyslug::announcedLocales($this, $this->slugLocales(...)) as $locale) {
             if ($this->polyslugIsRoutable($locale)) {
                 $urls[$locale] = $urlUsing($locale, $this->polyslugRouteKey($locale));
             }
