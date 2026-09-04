@@ -4,6 +4,15 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-09-04
+
+### Added
+- **`preserveCase: true` — keep the slug in the writing it was given.** A slug is folded when it is generated, so `Octo-Org` was stored as `octo-org` and the original writing was gone: the page could not render it, and neither could any URL built from the route key. That matters for a record mirroring something case-preserving *and* case-insensitive at once, which is what a GitHub handle is — `github.com/Octo-Org` and `github.com/octo-org` reach the same account, and the page shows the writing its owner chose.
+
+  Nothing else moves, and that is the point: the unique index and all three read paths already compare `lower(slug)`, so `Octo-Org` and `octo-org` remain one name, a second record still gets a disambiguating suffix, and `/Octo-Org`, `/octo-org` and `/OCTO-ORG` all still resolve. Opt-in, so a model that does not set it is unchanged. Pair it with `idLess: true`, which is where the case reaches the URL at all.
+
+  It is refused together with `unicode: 'native'`, and the reason is measurable rather than stylistic: uniqueness folds with the database's own `lower()`, PostgreSQL folds non-ASCII letters and SQLite does not, so an unfolded native slug would collide on one engine and not on another. `unicode: 'ascii'` transliterates first, so every stored slug is ASCII and every engine folds it the same way.
+
 ## [0.13.0] - 2026-09-04
 
 ### Added

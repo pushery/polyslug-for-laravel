@@ -84,6 +84,17 @@ final class MisconfiguredPolyslug extends RuntimeException
         );
     }
 
+    public static function preserveCaseExcludesNativeUnicode(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `preserveCase: true` with `unicode: \'native\'`: uniqueness is '
+            .'enforced by a case-insensitive index, and `lower()` does not agree across engines on non-ASCII '
+            .'letters — PostgreSQL folds them, SQLite does not. An unfolded native slug would therefore collide '
+            .'on one engine and not on another. `unicode: \'ascii\'` transliterates first, so every stored slug '
+            .'is ASCII and every engine folds it the same way.'
+        );
+    }
+
     public static function idLessRequiresUnique(): self
     {
         return new self(

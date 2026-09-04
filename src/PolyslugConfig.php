@@ -43,10 +43,25 @@ final readonly class PolyslugConfig
         public bool $reclaim = false,
         public bool $reclaimActive = false,
         public bool $slugless = false,
+        public bool $preserveCase = false,
     ) {
         // An idLess URL is the slug alone, so an idLess model resolves BY its slug and the
         // slug must stay unique. `unique: false` (records may share a slug) is therefore only
         // valid for a non-idLess model, whose encoded id disambiguates.
+        // Refused rather than allowed with a warning, and the reason is a measurable engine
+        // divergence rather than a preference. The unique index folds with the DATABASE's
+        // `lower()`, and those do not agree: PostgreSQL folds non-ASCII letters, SQLite does
+        // not. A folded slug hides that — every stored value is already lower-case, so both
+        // engines see the same thing. Storing `Ärger` unfolded would make it collide with
+        // `ärger` on PostgreSQL and not on SQLite, which is a uniqueness guarantee that
+        // depends on where the application runs.
+        //
+        // `unicode: 'ascii'` (the default) transliterates before storing, so a preserved-case
+        // slug is ASCII and every engine folds it identically.
+        if ($this->preserveCase && $this->unicode === 'native') {
+            throw MisconfiguredPolyslug::preserveCaseExcludesNativeUnicode();
+        }
+
         if ($this->idLess && ! $this->unique) {
             throw MisconfiguredPolyslug::idLessRequiresUnique();
         }
@@ -146,6 +161,7 @@ final readonly class PolyslugConfig
             reclaim: $this->reclaim,
             reclaimActive: false,
             slugless: $this->slugless,
+            preserveCase: $this->preserveCase,
         );
     }
 
@@ -174,6 +190,7 @@ final readonly class PolyslugConfig
             reclaim: $attribute->reclaim,
             reclaimActive: $attribute->reclaimActive,
             slugless: $attribute->slugless,
+            preserveCase: $attribute->preserveCase,
         );
     }
 }
