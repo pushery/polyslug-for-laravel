@@ -10,7 +10,6 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
-use Polyslug\Polyslug;
 
 final class SitemapCommand extends Command
 {
@@ -69,24 +68,32 @@ final class SitemapCommand extends Command
 
     private function entry(Sluggable $model, PolyslugUrlResolver $resolver): ?string
     {
-        // Same source as polyslugUrls(), deliberately: the sitemap and the hreflang set in the
-        // page head must not be able to disagree about which addresses a record has.
-        $locales = array_values(array_filter(
-            Polyslug::announcedLocales($model, $model->slugLocales(...)),
-            $model->polyslugIsRoutable(...),
-        ));
+        // THROUGH hreflangLinks(), not a second loop over the same locales. This method has
+        // always carried the sentence "the sitemap and the hreflang set in the page head must
+        // not be able to disagree about which addresses a record has" — and that is only true
+        // when one of them computes the answer and the other reads it. The loop that used to
+        // stand here matched the locale SET and still diverged on both things it did itself:
+        // <loc> took $locales[0], the alphabetically first locale, while the head announces
+        // x-default (the fallback locale); and no x-default alternate was emitted at all, so
+        // the same package answered one question two ways. Measured before the change, with
+        // locales [de, en] and fallback en: <loc> said /de/, x-default said /en/.
+        $urls = $model->hreflangLinks(
+            fn (string $locale, string $routeKey): string => $resolver->url($model, $locale),
+        );
 
-        if ($locales === []) {
+        if ($urls === []) {
             return null;
         }
 
         $links = '';
 
-        foreach ($locales as $locale) {
-            $links .= sprintf('<xhtml:link rel="alternate" hreflang="%s" href="%s"/>', e($locale), e($resolver->url($model, $locale)));
+        foreach ($urls as $hreflang => $url) {
+            $links .= sprintf('<xhtml:link rel="alternate" hreflang="%s" href="%s"/>', e($hreflang), e($url));
         }
 
-        return '<url><loc>'.e($resolver->url($model, $locales[0])).'</loc>'.$links.'</url>';
+        // x-default is the record's primary address by the only definition this package has,
+        // and hreflangLinks() guarantees the key exists whenever the set is non-empty.
+        return '<url><loc>'.e($urls['x-default']).'</loc>'.$links.'</url>';
     }
 
     /**

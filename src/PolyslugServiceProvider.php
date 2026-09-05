@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Contracts\Foundation\CachesConfiguration;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Route;
@@ -64,7 +65,7 @@ final class PolyslugServiceProvider extends ServiceProvider
     #[Override]
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/polyslug.php', 'polyslug');
+        $this->mergeConfigRecursivelyFrom(__DIR__.'/../config/polyslug.php', 'polyslug');
 
         $this->app->singleton(IdentityEncoder::class, static function (Application $app): IdentityEncoder {
             // The fallback matters as much as the config file: mergeConfigFrom covers a
@@ -292,5 +293,85 @@ final class PolyslugServiceProvider extends ServiceProvider
         // Both existed until 0.4.0 and contained only the generator's placeholders
         // ("This is an example Polyslug translation string."), so publishing them
         // copied scaffolding into consuming applications.
+    }
+
+    /**
+     * Lay the shipped defaults UNDER a published config file, all the way down.
+     *
+     * NOT `mergeConfigFrom()`, and the difference only shows up months later. Laravel's
+     * own merge is a single `array_merge` at the top level, so it asks one question per
+     * top-level key: is it there? A host that published the config file has every top-level
+     * key, which means a key added INSIDE one of those blocks by a later release never
+     * arrives. The block the host published wins whole.
+     *
+     * The failure is silent in both directions that matter. Nothing errors, nothing logs —
+     * the new setting simply reads as `null` (or as `[]`), so a feature added in a minor
+     * release is off for exactly the hosts that had customized that area, and a corrected
+     * security default never takes effect. It has been measured on a real upgrade elsewhere
+     * in this fleet: a routing flag added one minor after a host published stayed `null`
+     * for eleven releases.
+     *
+     * NOTE: RECURSING IS NOT ENOUGH ON ITS OWN — a LIST is a value, never a structure.
+     * `array_merge_recursive()` concatenates lists and `array_replace_recursive()` merges
+     * them by index. Measured, not recalled — a host narrowing a shipped `['web', 'api']`
+     * to `['admin']` gets back `['web', 'api', 'admin']` from the first and
+     * `['admin', 'api']` from the second. Both hand back an entry the host deliberately
+     * removed, and on an allowlist that is a security regression rather than a merge. So
+     * recursion stops at any list on either side and the published value stands as written.
+     *
+     * `array_is_list([])` is true, which is the behavior you want here: an empty array is a
+     * host saying "none", and descending into it could only re-introduce what it emptied.
+     *
+     * NOTE THE EARLY RETURN, because it bounds what this can rescue. A host with a CACHED
+     * config is never merged at all — that is the framework's design, not this method's
+     * limit. For those installations the published file is the whole truth, which is why a
+     * package that reads a nested key needs its read-site fallback to agree with the
+     * shipped default. The two are halves of one guarantee.
+     */
+    private function mergeConfigRecursivelyFrom(string $path, string $key): void
+    {
+        if ($this->app instanceof CachesConfiguration && $this->app->configurationIsCached()) {
+            return;
+        }
+
+        $shipped = require $path;
+
+        $repository = $this->app->make(ConfigRepository::class);
+        $existing = $repository->get($key);
+
+        // Both sides come off disk or out of the container, so neither is provably
+        // string-keyed here — a config array is just an array. The recursion below is
+        // written for exactly that: it asks whether a value is a LIST, never whether a key
+        // is a string.
+        $repository->set($key, $this->mergeConfigSections(
+            is_array($shipped) ? $shipped : [],
+            is_array($existing) ? $existing : [],
+        ));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $shipped
+     * @param  array<array-key, mixed>  $published
+     * @return array<array-key, mixed>
+     */
+    private function mergeConfigSections(array $shipped, array $published): array
+    {
+        foreach ($shipped as $key => $value) {
+            if (! array_key_exists($key, $published)) {
+                $published[$key] = $value;
+
+                continue;
+            }
+
+            // Recurse only where BOTH sides are maps. If either is a list, or the published
+            // value is a scalar or an explicit null, what the host wrote stands. An explicit
+            // null is a value like any other here, which keeps "write => null to switch this
+            // off" working exactly as a shipped config file describes it.
+            if (is_array($value) && is_array($published[$key]) && ! array_is_list($value) && ! array_is_list($published[$key])) {
+                $published[$key] = $this->mergeConfigSections($value, $published[$key]);
+            }
+        }
+
+        return $published;
     }
 }
