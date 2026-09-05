@@ -113,6 +113,22 @@ final class MisconfiguredPolyslug extends RuntimeException
         );
     }
 
+    /**
+     * @param  list<string>  $unknown
+     */
+    public static function robotsDirectiveIsNotVocabulary(string $model, array $unknown): self
+    {
+        return new self(
+            $model.'::polyslugRobotsDirective() returned `'.implode(', ', $unknown).'`, which is not a '
+            .'robots directive any crawler defines. An unrecognized token is silently ignored, so a '
+            .'typo in a directive meant to restrict a page does nothing and looks like it worked — '
+            .'`nofollw` for `nofollow` renders a tag a reader would swear is correct. Use one of: '
+            .'all, noindex, nofollow, none, noarchive, nosnippet, indexifembedded, notranslate, '
+            .'noimageindex, max-snippet:N, max-image-preview:none|standard|large, max-video-preview:N, '
+            .'unavailable_after:DATE.'
+        );
+    }
+
     public static function idLessRequiresUnique(): self
     {
         return new self(

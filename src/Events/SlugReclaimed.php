@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
  * Dispatched when a `reclaimActive` model takes a slug away from the record that was
  * actively holding it.
  *
- * ⚠️ THE DISPLACED RECORD IS LEFT WITHOUT A CURRENT SLUG FOR THAT LOCALE, and this event
+ * THE DISPLACED RECORD IS LEFT WITHOUT A CURRENT SLUG FOR THAT LOCALE, and this event
  * is how a consumer finds out. Its row is retired, not deleted, so its old URL keeps
  * resolving and 301s — but until its own source is synced it has no canonical URL of its
  * own. That is inherent to a takeover: the package cannot know what the displaced record

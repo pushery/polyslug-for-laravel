@@ -19,8 +19,8 @@ use Polyslug\Contracts\Sluggable;
  * ever loads the class at runtime (a `use` statement is an alias, not an include); and
  * the trait runs exclusively from a consumer's own test suite, where the full framework
  * is present by definition. Any OTHER shipped file importing Foundation is a real defect
- * that would fatal on a lean install — LeanDependencyContractTest holds that line, and
- * this file is named on its allowlist.
+ * that would fatal on a lean install; this file is the single exception, and it stays the
+ * single one.
  *
  * @mixin TestCase
  */

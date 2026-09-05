@@ -11,6 +11,7 @@ use Laravel\Head\HeadManager;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Exceptions\MisconfiguredPolyslug;
+use Polyslug\Polyslug;
 
 /**
  * Runtime target of the Head::polyslug() macro, registered only when the host has
@@ -83,7 +84,13 @@ final class PolyslugHead
         // private x-default rule out here just to reuse $urls — and eager-loading the `slugs`
         // relation removes the cost entirely, because both passes then read the same loaded
         // collection instead of querying.
-        $head->alternates($model->hreflangLinks($urlUsing));
+        $alternateLinks = [];
+
+        foreach ($model->hreflangLinks($urlUsing) as $hreflang => $url) {
+            $alternateLinks[Polyslug::hreflangCode($hreflang)] = $url;
+        }
+
+        $head->alternates($alternateLinks);
 
         // Say nothing about THIS locale's URL when the model is not routable in it. The
         // robots directive above already hides the page; naming its URL in a canonical
@@ -98,14 +105,25 @@ final class PolyslugHead
         // fallback then declares the stale URL canonical. The resolver knows the current
         // one. Note it carries no query string, matching canonical() semantics — unlike
         // the middleware's redirect target, which preserves the query on purpose.
-        $head->canonical($resolver->url($model, $locale))
-            ->og(locale: self::openGraphLocale($locale));
+        $head->canonical($resolver->url($model, $locale));
+
+        $openGraph = self::openGraphLocale($locale);
+
+        if ($openGraph !== null) {
+            $head->og(locale: $openGraph);
+        }
 
         $alternates = [];
 
         foreach (array_keys($urls) as $each) {
-            if ($each !== $locale) {
-                $alternates[] = self::openGraphLocale($each);
+            if ($each === $locale) {
+                continue;
+            }
+
+            $alternate = self::openGraphLocale($each);
+
+            if ($alternate !== null) {
+                $alternates[] = $alternate;
             }
         }
 
@@ -128,14 +146,35 @@ final class PolyslugHead
     }
 
     /**
-     * Open Graph writes a locale as language_TERRITORY. Only the SEPARATOR is
-     * normalized here: a bare "de" stays "de" instead of becoming "de_DE", because the
-     * territory is not ours to invent — guessing it would assert a regional variant
-     * nobody configured, on a tag that social crawlers read literally.
+     * The Open Graph form of a locale — language_TERRITORY — or null when there is none.
+     *
+     * NULL MEANS NO TAG, and that is the correction rather than a gap. A bare "de" is
+     * outside the format, and a scraper that cannot parse the value does not read a
+     * language from it: it falls back to its own default, which is usually en_US. So the
+     * tag was never saying what it looked like it was saying, and a page with no tag is
+     * in exactly the same position minus the claim.
+     *
+     * The territory stays un-invented, which is what it always was here: "en" is en_US to
+     * one site and en_GB to another, and asserting either would announce a regional
+     * variant nobody configured. What is new is that a consumer can now name the pairs,
+     * under polyslug.open_graph.locale_map. A locale that already carries a territory —
+     * "pt_BR", "de-AT" — needs no entry and only has its separator normalized.
      */
-    private static function openGraphLocale(string $locale): string
+    private static function openGraphLocale(string $locale): ?string
     {
-        return str_replace('-', '_', $locale);
+        $container = Container::getInstance();
+        $map = $container->make(ConfigRepository::class)->get('polyslug.open_graph.locale_map', []);
+        $mapped = is_array($map) ? ($map[$locale] ?? null) : null;
+
+        $candidate = is_string($mapped) && $mapped !== ''
+            ? str_replace('-', '_', $mapped)
+            : str_replace('-', '_', $locale);
+
+        // ISO 639 language, then an ISO 3166-1 alpha-2 or UN M.49 numeric region. Checked
+        // rather than assumed, because a mapped value is a consumer's string too.
+        return preg_match('/^[A-Za-z]{2,3}_([A-Za-z]{2}|[0-9]{3})$/D', $candidate) === 1
+            ? $candidate
+            : null;
     }
 
     /**
@@ -166,6 +205,13 @@ final class PolyslugHead
         }
 
         $directives = self::normalizeDirectives($model->polyslugRobotsDirective($locale));
+        $unknown = self::unknownDirectives($directives);
+
+        // Checked BEFORE the noindex rule below, so a page whose directive is both misspelled
+        // and non-restricting is reported for the reason that explains the other.
+        if ($unknown !== []) {
+            throw MisconfiguredPolyslug::robotsDirectiveIsNotVocabulary($model::class, $unknown);
+        }
 
         // `noindex` and `none` are the only two values that keep a page out of the
         // index. Everything else — including nothing at all — contradicts the branch
@@ -175,6 +221,66 @@ final class PolyslugHead
         }
 
         return $directives;
+    }
+
+    /**
+     * Directives that stand alone, exactly as the crawlers document them.
+     *
+     * @var list<string>
+     */
+    private const array ROBOTS_KEYWORDS = [
+        // `index` and `follow` are the defaults and rarely need writing, but they ARE
+        // directives -- this package's own MisconfiguredPolyslug message recommends
+        // `['noindex', 'follow']`, so a list without them would refuse the advice it gives.
+        'all', 'index', 'follow', 'noindex', 'nofollow', 'none', 'noarchive', 'nosnippet',
+        'indexifembedded', 'notranslate', 'noimageindex', 'nositelinkssearchbox', 'nocache',
+    ];
+
+    /**
+     * Directives that carry a value, and what a valid value looks like.
+     *
+     * @var array<string, non-empty-string>
+     */
+    private const array ROBOTS_VALUED = [
+        'max-snippet' => '/^-?\d+$/D',
+        'max-video-preview' => '/^-?\d+$/D',
+        'max-image-preview' => '/^(none|standard|large)$/D',
+        'unavailable_after' => '/^\S.*$/D',
+    ];
+
+    /**
+     * Every token a crawler would recognize, or the ones it would not.
+     *
+     * A robots tag has no error channel: an unrecognized directive is dropped, the tag renders,
+     * and the page behaves as though the directive was never written. `nofollw` for `nofollow`
+     * therefore reads as a working restriction and is none — which is the worst shape a defect
+     * can take on a tag whose whole job is to restrict.
+     *
+     * @param  list<string>  $directives
+     * @return list<string>
+     */
+    private static function unknownDirectives(array $directives): array
+    {
+        $unknown = [];
+
+        foreach ($directives as $directive) {
+            if (in_array($directive, self::ROBOTS_KEYWORDS, true)) {
+                continue;
+            }
+
+            // A valued directive is `name:value`, and the value is checked as well as the name:
+            // `max-image-preview:huge` is as inert as a misspelled keyword.
+            $name = str_contains($directive, ':') ? strstr($directive, ':', true) : null;
+            $pattern = is_string($name) ? (self::ROBOTS_VALUED[$name] ?? null) : null;
+
+            if ($pattern !== null && preg_match($pattern, substr($directive, strlen((string) $name) + 1)) === 1) {
+                continue;
+            }
+
+            $unknown[] = $directive;
+        }
+
+        return $unknown;
     }
 
     /**

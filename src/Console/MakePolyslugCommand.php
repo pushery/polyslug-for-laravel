@@ -30,7 +30,7 @@ final class MakePolyslugCommand extends Command
 
         // basePath('app/…') through the Application contract, not the app_path()
         // global helper: that helper ships only with laravel/framework's Foundation
-        // helpers, which this package does not require (LeanDependencyContractTest).
+        // helpers, which this package does not require.
         // The contract exposes basePath but not path(), so the `app/` segment is
         // spelled out — which also makes the convention this scaffolder assumes
         // visible rather than hidden behind a helper.

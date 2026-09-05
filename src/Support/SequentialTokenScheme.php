@@ -10,8 +10,10 @@ use Override;
 use Polyslug\Contracts\TokenScheme;
 
 /**
- * Counted tokens: the shortest token that has not been handed out yet — `1`, `2`, … `z`,
- * then `10`, `11`, and so on, one character wider only once a width is used up.
+ * Counted tokens: the shortest token that has not been handed out yet — `0`, `1`, … `z`,
+ * then `00`, `01`, and so on, one character wider only once a width is used up. The counting
+ * is bijective base-36 (TokenAlphabet::encode()), which is why a width ends on a full digit
+ * rather than carrying into a leading zero: `z` is followed by `00`, not by `10`.
  *
  * This is what a link shortener wants, and it is the exact opposite trade from
  * {@see RandomTokenScheme}. It produces the shortest URL that can exist for a given number

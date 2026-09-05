@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Concerns;
 
+use DateTimeInterface;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
@@ -313,7 +314,7 @@ trait HasPolyslug
     /**
      * Sync WITHOUT taking a name another record still holds — the backfill counterpart.
      *
-     * ⚠️ ON THE Sluggable CONTRACT, which makes this a breaking change for a consumer that
+     * ON THE Sluggable CONTRACT, which makes this a breaking change for a consumer that
      * implements the interface WITHOUT taking this trait. It was trait-only first, and the
      * package's own backfill is what settled it: a capability the contract does not carry
      * cannot be called on anything typed as Sluggable — not by a consumer, and not by this
@@ -485,7 +486,7 @@ trait HasPolyslug
         $tags = [];
 
         foreach ($this->hreflangLinks($urlUsing, $xDefault) as $hreflang => $url) {
-            $tags[] = sprintf('<link rel="alternate" hreflang="%s" href="%s">', e($hreflang), e($url));
+            $tags[] = sprintf('<link rel="alternate" hreflang="%s" href="%s">', e(Polyslug::hreflangCode($hreflang)), e($url));
         }
 
         return new HtmlString(implode("\n", $tags));
@@ -501,7 +502,7 @@ trait HasPolyslug
         $tags = [];
 
         foreach ($this->hreflangLinks($urlUsing, $xDefault) as $hreflang => $url) {
-            $tags[] = sprintf('<xhtml:link rel="alternate" hreflang="%s" href="%s"/>', e($hreflang), e($url));
+            $tags[] = sprintf('<xhtml:link rel="alternate" hreflang="%s" href="%s"/>', e(Polyslug::hreflangCode($hreflang)), e($url));
         }
 
         return new HtmlString(implode("\n", $tags));
@@ -756,6 +757,8 @@ trait HasPolyslug
      * Resolve this model type by primary key THROUGH the resolution gate
      * (polyslugResolveQuery), so tenant/visibility scoping applies uniformly to every
      * resolution path — bound routes, the polymorphic resolver, slug-only, and /go.
+     * `mixed` because every caller hands over an untyped value (a route parameter, a
+     * decoded token); the gate's whereKey() narrows it.
      */
     public function polyslugResolveByKey(mixed $key): ?static
     {
@@ -778,11 +781,10 @@ trait HasPolyslug
      * Resolve a slug-only URL by its slug: current slugs first (canonical), then
      * superseded ones (the canonical middleware then 301s to the current URL).
      *
-     * SCOPE IS THE CALLER'S TO NAME, and this docblock used to claim the opposite — that
-     * "the resolve-query gate still applies, so a slug shared across scopes resolves to the
-     * one this request may see". It does not, and the wrong half is which QUESTION the gate
-     * answers: it separates by what the environment says is visible (session, tenant,
-     * request context). A scope that lives in a path segment — `/@alice/toolkit` versus
+     * SCOPE IS THE CALLER'S TO NAME, and the resolve-query gate does not stand in for it. The
+     * two answer different questions: the gate separates by what the environment says is
+     * visible (session, tenant, request context). A scope that lives in a path segment —
+     * `/@alice/toolkit` versus
      * `/@bob/toolkit` — is an ARGUMENT of the resolution, not environment state, so it
      * reaches neither this query nor the gate. Both rows may legally hold the slug, because
      * the unique index is scope-bound too; the lookup then returns whichever sorts first.
@@ -965,7 +967,7 @@ trait HasPolyslug
      * both are normalized to the same tag, so the rendered output cannot depend on
      * which spelling was typed.
      *
-     * ⚠️ The answer must still PREVENT INDEXING — it needs `noindex` or `none`. This is
+     * The answer must still PREVENT INDEXING — it needs `noindex` or `none`. This is
      * the branch for a page the gate hides, so a permissive directive would contradict
      * the reason the branch was entered, and an empty one is worse than permissive:
      * laravel/head renders no tag at all for it, and a page with no robots meta is
@@ -987,6 +989,26 @@ trait HasPolyslug
     public function polyslugIsGone(): bool
     {
         return false;
+    }
+
+    /**
+     * When this record's CONTENT last changed, for the sitemap's <lastmod>. Null emits none.
+     *
+     * ON THE TRAIT, NOT ON THE CONTRACT, for the reason polyslugRobotsDirective() is: an
+     * application implementing Sluggable by hand keeps compiling and keeps emitting no
+     * <lastmod>, which is what it had before. The sitemap reaches it through method_exists().
+     *
+     * Null by DEFAULT rather than `updated_at`, and that is the design rather than a stub.
+     * `lastmod` is the one sitemap hint search engines still read, and they read it only while
+     * it stays accurate: a timestamp that moves on every write — a view counter, a cached
+     * column, a nightly re-import that touches every row — turns the field into noise, and the
+     * documented response is to disregard it for the whole site rather than for the row. So
+     * nothing is emitted until a model says what a meaningful change is. Wherever `updated_at`
+     * only moves with the content, `return $this->updated_at;` is the whole implementation.
+     */
+    public function polyslugLastModified(): ?DateTimeInterface
+    {
+        return null;
     }
 
     public function polyslugOnDeleted(): void
@@ -1147,7 +1169,7 @@ trait HasPolyslug
 
         // The key is written nowhere else and only ever with this type, so the annotation
         // states a fact rather than asking to be trusted. A runtime re-check here would be a
-        // branch no run can enter, and the gate demands every line be reachable.
+        // branch no run can enter.
         /** @var IdentityEncoder $encoder */
         $encoder = $container->make($key);
 

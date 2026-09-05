@@ -65,7 +65,7 @@ return [
     |     10       ~3.7 quadrillion     /lists/k3f9dlq7xm
     |     16       ~8.0 x 10^24         /lists/k3f9dlq7xm2bv4tc  (default)
     |
-    | SEQUENTIAL hands out the shortest token not yet taken — 1, 2, … z, then 10, 11
+    | SEQUENTIAL hands out the shortest token not yet taken — 0, 1, … z, then 00, 01
     | — which is the shortest URL that can exist for a given number of records, and
     | what a link shortener is usually after. In exchange it is COMPLETELY
     | PREDICTABLE: the token after k3f8 is k3f9, so the whole set can be walked, and
@@ -253,11 +253,69 @@ return [
     | model implementing Sluggable. Bind a Polyslug\Contracts\PolyslugUrlResolver in
     | the container to tell the command how to build an absolute URL per model+locale.
     |
+    | 'max_urls' and 'max_bytes' are the sitemap protocol's own ceilings for ONE file:
+    | 50,000 URLs and 50 MB uncompressed. Past either one the command writes numbered
+    | parts next to --path and puts a <sitemapindex> at --path itself, so the limit is
+    | never something the operator has to notice. Lower them if a CDN or a search
+    | console you use wants smaller files; raising them past the protocol produces a
+    | document that engines reject.
+    |
     */
 
     'sitemap' => [
         'types' => [
             // \App\Models\Page::class,
+        ],
+
+        'max_urls' => 50_000,
+        'max_bytes' => 50 * 1024 * 1024,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Backfill
+    |--------------------------------------------------------------------------
+    |
+    | Where `polyslug:backfill --queue` puts its jobs. A backfill walks an entire
+    | table, so on the default queue it sits in front of every password reset and
+    | order confirmation the application has, for as long as that takes. Name a
+    | queue your workers treat as bulk, and the rest of the app keeps moving.
+    |
+    | null leaves the framework's own default in place for each. Both can be
+    | overridden per run with --on-queue= and --on-connection=. 'tries' and
+    | 'timeout' are the job's, not the worker's -- a chunk that re-queries its rows
+    | is safe to retry, and a long chunk needs a timeout that admits it.
+    |
+    */
+
+    'backfill' => [
+        'connection' => null,
+        'queue' => null,
+        'tries' => null,
+        'timeout' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Open Graph
+    |--------------------------------------------------------------------------
+    |
+    | Open Graph writes a locale as language_TERRITORY ('en_US', 'pt_BR'). A plain
+    | 'en' is outside that format, and a scraper that cannot parse the value does
+    | not read a language from it — it falls back to its own default. So a locale
+    | with no territory gets NO og:locale tag rather than an unparseable one.
+    |
+    | The territory is not something the package can invent: 'en' is en_US to one
+    | site and en_GB to another, and asserting either would announce a regional
+    | variant nobody configured. Name the pairs you want here. Locales that already
+    | carry a territory ('pt_BR', 'de-AT') need no entry.
+    |
+    */
+
+    'open_graph' => [
+        'locale_map' => [
+            // 'en' => 'en_US',
+            // 'de' => 'de_DE',
         ],
     ],
 
@@ -267,8 +325,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | Status for the self-healing redirect from a stale slug to the canonical URL
-    | (GET/HEAD only). 301 is permanent; 308 also preserves the HTTP method; use
-    | 302/307 while a slug is still volatile so the redirect is not cached.
+    | (GET/HEAD only). 301 is permanent; use 302/307 while a slug is still volatile
+    | so the redirect is not cached. 308 is accepted too, and since only GET and HEAD
+    | are ever redirected, its method-preserving guarantee changes nothing here.
     |
     */
 

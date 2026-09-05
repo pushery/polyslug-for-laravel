@@ -50,7 +50,7 @@ interface Sluggable
     /** A stable short-link token for this model + locale; route Polyslug\Http\Controllers\ShortLinkController at /go/{token} to 301 it to the current canonical URL (survives renames). */
     public function shortLink(?string $locale = null): string;
 
-    /** Resolve this model type by primary key THROUGH the resolution gate (polyslugResolveQuery), so tenant/visibility scoping applies on every path — including /go. */
+    /** Resolve this model type by primary key THROUGH the resolution gate (polyslugResolveQuery), so tenant/visibility scoping applies on every path — including /go. `mixed` because the key arrives untyped: as a route parameter or as a decoded token; the implementation narrows it. */
     public function polyslugResolveByKey(mixed $key): ?static;
 
     /**

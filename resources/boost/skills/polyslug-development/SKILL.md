@@ -74,7 +74,14 @@ scheme's default of 10 random / 1 counted), `sqids.{alphabet,min_length}`, `lega
 (previous encoders to try on a decode miss — encoder migration), `write.max_attempts`, `locale.{source,route_param,missing,fallback_locale}`,
 `reserved.{global,from_routes}`, `redirect.status` (the self-heal status, 301 by default),
 `gone.{status,redirect_status}`, `analytics.enabled`,
-`sitemap.types`, `types` (polymorphic registry).
+`backfill.{connection,queue,tries,timeout}` (where `polyslug:backfill --queue` puts its jobs;
+all null by default, `--on-queue=`/`--on-connection=` override per run — a backfill left on the
+default queue blocks every password reset behind it),
+`open_graph.locale_map` (bare locales get NO og:locale — the format is language_TERRITORY,
+and the territory is not the package's to invent; map `en => en_US` to get one),
+`sitemap.{types,max_urls,max_bytes}` (the last two are the protocol's per-file ceilings,
+50,000 URLs and 50 MB — past either, the command splits and writes an index), `types`
+(polymorphic registry).
 
 ## Leak-safe identity encoders
 
@@ -191,8 +198,14 @@ slug of its own reuses the default locale's, which is what lets one slug serve b
 If `laravel/head` is installed, let it own the `<head>` instead of rendering tags yourself.
 `Head::polyslug($model)` writes ONLY what Polyslug is the authority on — canonical URL (from
 the bound `PolyslugUrlResolver`, not the request), the reciprocal hreflang set, `og:locale`
-plus one `og:locale:alternate` per other locale, and a `robots` directive when
+(only in language_TERRITORY form — see `open_graph.locale_map`), plus one
+`og:locale:alternate` per other locale, and a `robots` directive when
 `polyslugIsRoutable()` is false. Title, description, cards and JSON-LD stay yours.
+
+⚠️ **A site-wide robots hint goes through `Head::defaults()`, never after `Head::polyslug()`.**
+`laravel/head` REPLACES a string tag, so `Head::polyslug($gated)->robots('max-image-preview:large')`
+erases the gate's `none` and publishes a page the app is hiding — nothing red, nothing logged.
+A default applies as the base and loses to Polyslug, which is the outcome you want.
 
 That directive defaults to `none`, which per spec means `noindex, nofollow` — a stronger claim
 than the gate makes, since the gate is about indexability and says nothing about the links on
@@ -281,6 +294,11 @@ returning whichever row sorts first.
   locale and would emit the same URL for every language.
 
 - `php artisan polyslug:sitemap --path=public/sitemap.xml` — streams all `polyslug.sitemap.types` with hreflang alternates, honoring `polyslugIsRoutable()`.
+  One `<url>` per ADDRESS, so a record served under three locales is three entries, each carrying the same alternate set.
+  Past 50,000 URLs or 50 MB it writes `sitemap-1.xml`, `sitemap-2.xml`, … beside `--path` and a `<sitemapindex>` at `--path`;
+  the index needs absolute URLs, so it takes `app.url` or `--base-url=` and fails rather than writing relative ones.
+  `<lastmod>` is emitted only for a model that implements `polyslugLastModified(): ?DateTimeInterface` (on the trait, not the contract);
+  it returns null by default because a timestamp that moves on every write gets the field disregarded site-wide. `<priority>`/`<changefreq>` are never emitted — engines ignore them.
 - `$model->shortLink()` + route `ShortLinkController` at `/go/{token}` — a stable token that 301s to the current canonical URL (survives renames).
 
 ## Other operations
