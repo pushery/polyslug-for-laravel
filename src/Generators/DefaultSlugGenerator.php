@@ -83,7 +83,7 @@ final class DefaultSlugGenerator implements SlugGenerator
      * run of non-(letter/number) to a single separator, which is what is left of `Str::slug()`
      * once the fold is removed.
      *
-     * ⚠️ A SECOND IMPLEMENTATION IS A SECOND THING TO GET WRONG, so it is held to the first:
+     * A SECOND IMPLEMENTATION IS A SECOND THING TO GET WRONG, so it is held to the first:
      * a test asserts that lower-casing this result lands exactly on what `Str::slug()` emits
      * for the same source. Nothing here may drift into producing a different SHAPE — the only
      * difference this method is allowed to make is the case.

@@ -331,7 +331,7 @@ final class TokenStore
 
         // Written as a positive branch rather than a `null` guard with a `continue`: a column
         // that is not a string cannot happen against this schema, so the guard would be a
-        // statement no run can execute — and the coverage gate is right to object to one.
+        // statement no run can execute.
         foreach ($rows as $row) {
             $token = $this->columnString($row->token ?? null);
 
@@ -356,11 +356,11 @@ final class TokenStore
      * A conditional UPDATE rather than a read-then-write, so two records racing for the same
      * orphan cannot both take it: the loser sees zero rows affected and mints instead.
      *
-     * ⚠️ PRECONDITION: $type is never the untyped lane. Both callers reach this only after
+     * PRECONDITION: $type is never the untyped lane. Both callers reach this only after
      * finding a row whose owner DIFFERS from theirs, and when the caller is itself the untyped
-     * lane the read asks for one lane, so every row is its own. A guard for that case was here
-     * and is gone: it was a branch no run can enter, which the coverage gate correctly refuses
-     * and which reads to the next person like a case that happens.
+     * lane the read asks for one lane, so every row is its own. There is deliberately no guard
+     * for that case: it would be a branch no run can enter, and it would read to the next
+     * person like a case that happens.
      */
     private function claimOrphan(string $key, string $type): bool
     {

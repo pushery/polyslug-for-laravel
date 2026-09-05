@@ -13,8 +13,8 @@ use Polyslug\Support\TokenAlphabet;
 use Polyslug\Support\TokenStore;
 
 /**
- * The shortest URL a record can have: tokens are handed out in order — `1`, `2`, … `z`,
- * then `10` — and a width grows only once it is used up. What a link shortener wants.
+ * The shortest URL a record can have: tokens are handed out in order — `0`, `1`, … `z`,
+ * then `00` — and a width grows only once it is used up. What a link shortener wants.
  *
  * IT IS PREDICTABLE ON PURPOSE, and that is the entire trade. The token after `k3f8` is
  * `k3f9`, so anyone can walk the whole set, and the token reports both how many records

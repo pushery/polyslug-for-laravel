@@ -27,6 +27,19 @@ final class Polyslug
     public const string SLUG_PATTERN = '/^[a-z0-9]+(?:-[a-z0-9]+)*$/D';
 
     /**
+     * The hreflang form of a locale. Laravel's locale files use pt_BR and de_AT, and an
+     * application locale is free to carry that underscore; hreflang reads BCP 47, where the
+     * region follows a hyphen, and an annotation it cannot parse is dropped along with the
+     * reciprocity of every page that named it. Only the separator moves: the locale's own
+     * spelling stays the key of every URL map, and Open Graph — which wants the underscore —
+     * normalizes in its own direction.
+     */
+    public static function hreflangCode(string $locale): string
+    {
+        return str_replace('_', '-', $locale);
+    }
+
+    /**
      * Split a routable value into its slug and encoded-identity parts at the last
      * delimiter.
      *
@@ -73,7 +86,7 @@ final class Polyslug
      * The fallback is passed IN rather than read off the model, and the parameter is a plain
      * object, because the two callers do not share a type: the sitemap command holds a
      * Sluggable, while HasPolyslug::polyslugUrls() runs on `$this` — and the trait can be used
-     * on a class that does not implement Sluggable at all (TraitOnlyModel does exactly that).
+     * on a class that does not implement Sluggable at all, which is a supported arrangement.
      * Typing this Sluggable would be a claim the trait cannot keep. Taking the fallback as an
      * argument keeps the RULE in one place without inventing a type that fits neither caller.
      *

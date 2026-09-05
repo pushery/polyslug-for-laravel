@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Redirector;
 use Illuminate\Routing\Route;
@@ -44,7 +45,9 @@ final class EnsureCanonicalSlug
         // deferred until the application has had its turn.
         $gone = $this->isGone($route);
         $terminal = $gone ? null : $this->supersededRedirect($route, $locale);
-        $stale = $gone || $terminal instanceof Response ? false : $this->hasStaleSlug($route, $locale);
+        $stale = $gone || $terminal instanceof Response
+            ? false
+            : $this->hasStaleSlug($route, $locale) || $this->hasTrailingSlash($request);
 
         if (! $gone && ! $terminal instanceof Response && ! $stale) {
             return $next($request);
@@ -89,10 +92,35 @@ final class EnsureCanonicalSlug
         }
 
         $url = $this->canonicalUrl($request, $route, $locale);
+
+        // NO LOOP GUARD HERE, and it was written and then removed rather than never considered.
+        // A redirect to the address just requested is a loop a browser gives up on, and the way
+        // to reach one would be a canonical path that itself ends in a slash. It cannot: Route
+        // normalizes its URI through `trim($uri, '/')`, so `pages/{page}/` and `/pages/{page}/`
+        // both store `pages/{page}` -- measured on both spellings. The guard was a branch no run
+        // could enter, which the coverage floor is right to object to and which reads to the
+        // next person like a case that happens.
         $status = $this->status();
         $this->recordRedirect($route, $locale, $url, $status);
 
         return Container::getInstance()->make(Redirector::class)->to($url, $status);
+    }
+
+    /**
+     * A path with a trailing slash is a SECOND address for the same document.
+     *
+     * Nothing in the stack removes it: the router matches `/p/x/` against `/p/{page}` with the
+     * slug parameter identical, so hasStaleSlug() sees nothing wrong and the page answers 200
+     * at both addresses. Measured before this check existed -- `/p/{key}` and `/p/{key}/` both
+     * 200, no Location header on either. That is precisely what a canonical redirect exists to
+     * prevent, arriving through the one door it was not watching.
+     */
+    private function hasTrailingSlash(Request $request): bool
+    {
+        $path = $request->getPathInfo();
+
+        // The site root is not a duplicate of anything: `/` IS the path, not `` with a slash.
+        return $path !== '/' && str_ends_with($path, '/');
     }
 
     private function isSafe(Request $request): bool
@@ -196,7 +224,7 @@ final class EnsureCanonicalSlug
      * return value from polyslugSupersededBy(), not from a resolution, and its route key —
      * usually its title — was rendered into a 301 without anyone asking whether the requester
      * may see it. A consumer whose gate is closed and whose action authorizes correctly still
-     * leaked a foreign row's title, one hop further out than the original finding.
+     * leaked a foreign row's title, one hop beyond where the resolution gate reaches.
      *
      * Pushing the check into the consumer's polyslugSupersededBy() was rejected for the reason
      * 0.7.0 gave for the resolution gate: the method is named supersededBy, not
@@ -227,6 +255,13 @@ final class EnsureCanonicalSlug
             $visible = $successor->polyslugResolveSelf();
 
             if (! $visible instanceof Sluggable) {
+                continue;
+            }
+
+            // A successor that is this very record would redirect to the address just
+            // requested, and the browser would follow that forever. It is treated as no
+            // successor at all: the page is served, exactly as for a record nobody superseded.
+            if ($visible instanceof Model && $value instanceof Model && $visible->is($value)) {
                 continue;
             }
 
@@ -278,9 +313,8 @@ final class EnsureCanonicalSlug
      * path, it can only lengthen it. Locale resolution is untouched — `requestLocale()` reads
      * the same source earlier and independently.
      *
-     * Used by BOTH builders on purpose. The self-heal redirect is where this was reported;
-     * `successorUrl()` had it too, and a fix applied only where a defect was noticed leaves
-     * its twin in place.
+     * Used by BOTH builders on purpose: `successorUrl()` builds its URL the same way, so
+     * filtering in only one of them would leave the other emitting the parameter.
      *
      * Keyed `array-key` rather than `string` because that is all the framework promises:
      * both `parameters()` and `parameterNames()` are annotated bare `array`. Route parameter

@@ -27,8 +27,8 @@ use Laravel\Head\Tags\TagBuilder;
  * package installed. It cannot be: nothing references it by anything but ::class
  * (which does not autoload) outside PolyslugHead, and PolyslugHead itself is only
  * ever reached through the macro the provider registers behind
- * class_exists(HeadManager::class). LaravelHeadContractTest holds that file set at
- * three and names each one, so a fourth is a deliberate act rather than a drift.
+ * class_exists(HeadManager::class). Exactly three files may name Laravel\Head, this is
+ * one of them, and a fourth has to be a deliberate act rather than a drift.
  */
 final class PolyslugOpenGraphLocales extends GroupedTagBuilder
 {

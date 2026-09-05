@@ -21,7 +21,7 @@ return new class extends Migration
      * weaker than what RandomTokenEncoder advertises, and polyslug_short_links — solving the
      * same problem one table over — keys on the full target instead.
      *
-     * ⚠️ THIS CHANGES WHICH TOKEN A RECORD GETS, and only a backfill keeps that from breaking
+     * THIS CHANGES WHICH TOKEN A RECORD GETS, and only a backfill keeps that from breaking
      * published URLs. The backfill is the substance of this migration, not a courtesy: without
      * it, the first render after deploying would find no row for (type, id) and mint a new
      * token for EVERY record.

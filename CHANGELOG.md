@@ -4,6 +4,38 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-09-05
+
+### Added
+
+- **A record served under several locales now appears once per address in the sitemap.** A `<url>` element is what search engines count as a submitted address; an `<xhtml:link>` inside it is an annotation *about* that address. Every locale but one therefore went unannounced — at three locales, two thirds of the addresses. Each address now gets its own entry, all of them carrying the same complete alternate set including a self-reference, and the written count reports URLs rather than records.
+
+- **The sitemap splits past the protocol's ceilings and publishes an index.** One file may hold 50,000 URLs and 50 MB, and a file past either is rejected whole rather than truncated. With `--path` the command now writes `sitemap-1.xml`, `sitemap-2.xml`, … beside it and a `<sitemapindex>` at the target as soon as either limit is reached; below them the output is unchanged, one `<urlset>` and no index. An index has to name each part by absolute URL, so the command takes `app.url` or the new `--base-url`, and fails rather than writing relative locations. Both ceilings are configurable under `polyslug.sitemap.max_urls` and `polyslug.sitemap.max_bytes`. Each part is written as soon as it is full, so a large table's peak memory is one part instead of the whole document.
+
+- **`polyslugLastModified()` supplies the sitemap's `<lastmod>`.** It is the one hint of the three that search engines still act on — `<priority>` and `<changefreq>` are documented as ignored and stay absent. It returns `null` by default rather than `updated_at`, on purpose: a timestamp that moves on every write turns the field into noise, and the documented response is to disregard it for the whole site. `return $this->updated_at;` is the whole implementation wherever that column tracks the content. The method lives on `HasPolyslug`, so a hand-written `Sluggable` keeps working unchanged.
+
+- **`polyslug:backfill --queue` can be routed off the default queue.** A backfill walks the whole table, so on the default queue it sits in front of every password reset the application has. `--on-queue=` and `--on-connection=` decide per run; `polyslug.backfill.{connection,queue,tries,timeout}` decides once. All four default to `null`, so an installation that names none keeps exactly the behavior it had.
+
+### Changed
+
+- **`og:locale` is written only in the form Open Graph defines.** With Laravel's default `app.locale = de` the bridge emitted `content="de"`, which is outside the `language_TERRITORY` format — a scraper that cannot parse the value does not read a language from it, it falls back to its own default. A locale without a territory now produces no tag at all, which loses the claim and nothing else. `polyslug.open_graph.locale_map` is how a site names the pairs it wants (`'en' => 'en_US'`); a locale that already carries one, like `pt_BR`, still passes through.
+
+- **A robots directive outside the documented vocabulary is now refused.** `['noindex', 'nofollw']` used to render, and a crawler drops the token it does not recognize — so a typo in a directive whose only job is to restrict looked like it worked. Both halves are checked: the name, and the value for the four directives that carry one, since `max-image-preview:huge` is as inert as a misspelled keyword.
+
+- **The published manifest describes the published tree.** The mirror carries no test suite and no workbench, so `require-dev`, `scripts` and `autoload-dev` all named a checkout that is not there — `composer test` on a public clone answered "Command 'test' is not defined", and the dev autoloader mapped four namespaces onto absent directories. All three are root-only keys that no consumer reads from a dependency. `CONTRIBUTING.md` and the testing guide now say where the suite lives and what happens to a pull request instead.
+
+### Fixed
+
+- **A trailing slash is now redirected to the canonical URL.** `/blog/hello_aB3xK/` and `/blog/hello_aB3xK` served the same document with `200` apiece: the router matches both with an identical slug parameter, so nothing about the slug was stale and the duplicate was the path itself. The redirect target is compared by path before it is issued, so a route declared with a trailing slash of its own cannot loop.
+
+- **hreflang codes are BCP 47 even when the application locale carries an underscore.** Locales spelled the way Laravel's own language files spell them — `pt_BR`, `de_AT` — reached the page head, the sitemap alternates and the `laravel/head` bridge as `hreflang="pt_BR"`. Search engines read `pt-BR`; an annotation they cannot parse is dropped, and with it the reciprocity of every page that named it. The rendered code now carries the hyphen. URLs and the keys of every URL map keep the locale's own spelling, and Open Graph keeps the underscore it wants; `Polyslug::hreflangCode()` is the one place that decides.
+
+- **The sitemap no longer submits addresses the site itself refuses or redirects.** A record that reports `polyslugIsGone()` answers 410, and a superseded record whose successor is visible answers 301 — both were listed as `<url>` entries all the same. `polyslug:sitemap` now applies the precedence the canonical middleware applies, in the same order, and the successor itself stays listed.
+
+- **A supersede pointer naming the record itself no longer redirects in a loop.** `polyslugSupersededBy()` returning the very model it was asked on produced a 301 to the address just requested, which a browser follows until it gives up. The middleware treats it as no successor at all and serves the page.
+
+- **Four documentation claims corrected against measurement.** `308` was described as preserving the request method, but only `GET` and `HEAD` are ever redirected, so it changes nothing here; `410` was called a faster de-index signal than `404`, which Google does not document — the value is the explicit signal; the sitemap command was said to keep a large table out of memory, but the rendered document is assembled in memory before it is written; and the canonical redirect was said to preserve the query string verbatim, where the framework sorts and re-encodes it. The sitemap page also says what the command leaves out, and shows how to keep the file current on a schedule.
+
 ## [0.16.0] - 2026-09-05
 
 ### Added
@@ -26,7 +58,7 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
   The merge now recurses through maps while replacing lists whole — a list is a host's complete answer, and merging into it would resurrect an entry they deliberately deleted. `tests/Feature/ConfigMergeDepthTest.php` holds both directions.
 
-- **A token column is now byte-exact on MySQL, so a mixed-case alphabet keeps the entropy it promises.** `$table->string('token')` states no collation, so the column inherits the connection's, and on MySQL that default is case-insensitive. `TokenAlphabet` explicitly invites an application to pass its own alphabet to "get the entropy back", and its validation admits `A-Z`; an application that takes the invitation got a 62-character alphabet the database counted as 36. At the default length of 16 that is roughly a factor of 2^25, on `/go/{token}` — the one path `RandomTokenScheme` exists for. Its collision escalation is calibrated against 36^n as well, so it fired later than the real space warranted.
+- **A token column is now byte-exact on MySQL, so a mixed-case alphabet keeps the entropy it promises.** `$table->string('token')` states no collation, so the column inherits the connection's, and on MySQL that default is case-insensitive. `TokenAlphabet` explicitly invites an application to pass its own alphabet to "get the entropy back", and its validation admits `A-Z`; an application that takes the invitation got a 62-character alphabet the database counted as 36. At the default length of 16 that is roughly a factor of 2^12.5 — about 6,000× — on `/go/{token}` — the one path `RandomTokenScheme` exists for. Its collision escalation is calibrated against 36^n as well, so it fired later than the real space warranted.
 
   Measured per engine with the schema line verbatim: PostgreSQL 18 and SQLite compare byte-exactly and let `abc123` and `AbC123` coexist, while MySQL under `utf8mb4_unicode_ci` resolved one to the other and rejected the second as a duplicate. The new migration is therefore scoped to MySQL, and it reads the column's real type and character set instead of restating them, so a consumer that widened or narrowed the column keeps it.
 

@@ -15,9 +15,10 @@ use Illuminate\Support\Facades\Schema;
  * `TokenAlphabet` explicitly invites a mixed-case alphabet ("An application that wants the
  * entropy back passes its own alphabet") and its validation admits `A-Z`. An application
  * that takes the invitation gets a 62-character alphabet that the database counts as 36 —
- * roughly a factor of 2^25 at the default length of 16, on `/go/{token}`, the one path
- * RandomTokenScheme exists for. RandomTokenScheme::DRAWS_PER_LENGTH is calibrated against
- * 36^n as well, so its collision escalation fires later than the real space warrants.
+ * (62/36)^16 at the default length of 16, so roughly a factor of 6,000, or 2^12.5, on
+ * `/go/{token}`, the one path RandomTokenScheme exists for. RandomTokenScheme::DRAWS_PER_LENGTH
+ * is calibrated against 36^n as well, so its collision escalation fires later than the real
+ * space warrants.
  *
  * Measured 2026-09-05 on real servers, one probe per engine, the schema line verbatim
  * (`VARCHAR(255) NOT NULL UNIQUE`):
@@ -29,7 +30,7 @@ use Illuminate\Support\Facades\Schema;
  * So MySQL is the one engine out of step, and this migration is scoped to it. The control
  * that makes those zeros trustworthy: the same lookup for the exact string returns 1.
  *
- * ⚠️ THE DIRECTION IS SAFE, AND ONLY THIS DIRECTION IS. Case-insensitive to binary SPLITS
+ * THE DIRECTION IS SAFE, AND ONLY THIS DIRECTION IS. Case-insensitive to binary SPLITS
  * equivalence classes: every pair that was distinct under the old collation stays distinct
  * under the new one, so a unique index that held before still holds. The reverse would
  * merge them and could fail on live data. Nothing here rewrites a row.

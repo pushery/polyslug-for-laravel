@@ -14,11 +14,23 @@ use Illuminate\Support\Facades\Schema;
  * PARTIAL unique index that carries the one-current-slug guarantee — and every resolution was a
  * full table scan.
  *
- * ⚠️ THE CAUSE IS STATISTICS, NOT REACHABILITY, and that distinction is why the fix is a second
- * index rather than a rewritten query. PostgreSQL gathers no expression statistics from a
- * PARTIAL expression index, so `lower(slug) = ?` falls back to the default 0.5% guess: at
- * 100,000 rows the planner expects 500 matches where there is 1, and on that estimate a scan
- * really is cheaper than the index. It is choosing correctly from wrong numbers.
+ * THE CAUSE IS STATISTICS, NOT REACHABILITY, and that distinction is why the fix is a second
+ * index rather than a rewritten query. PostgreSQL does collect expression statistics for a
+ * PARTIAL expression index — they are there in pg_stats. What it will not do is CONSULT them
+ * for a query that does not imply the index predicate, and resolution does not: it asks for
+ * `lower(slug) = ?` without `is_current`. So the estimate falls back to the default 0.5%
+ * guess: at 100,000 rows the planner expects 500 matches where there is 1, and on that
+ * estimate a scan really is cheaper than the index. It is choosing correctly from wrong
+ * numbers.
+ *
+ * Measured on PostgreSQL 18.4, 100,000 rows, one partial unique index on `lower(slug)`:
+ *
+ *   pg_stats for the index                       one row, n_distinct = -1  -> collected
+ *   EXPLAIN lower(slug) = ?                      Seq Scan, rows=500        -> not consulted
+ *   EXPLAIN lower(slug) = ? AND is_current       Index Scan, rows=1        -> consulted
+ *
+ * The third line is the control: it is the same expression and the same index, and it is what
+ * shows the statistics are usable rather than absent.
  *
  * Measured 2026-09-05, outside a transaction, after ANALYZE:
  *

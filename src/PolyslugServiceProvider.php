@@ -229,9 +229,9 @@ final class PolyslugServiceProvider extends ServiceProvider
      *
      * Everything below is skipped without it, PolyslugHead is then never loaded, and
      * the package behaves exactly as it did before. That is why the class reference is
-     * guarded rather than merely imported — an import that only resolves because the
-     * class happens to sit in the vendor tree is the defect DeclaredDependencyContractTest
-     * exists to catch, one ecosystem over.
+     * guarded rather than merely imported — an import that only resolves because the class
+     * happens to sit in the vendor tree is a fatal waiting for the first install that does
+     * not carry it.
      */
     private function registerHeadIntegration(): void
     {
@@ -307,9 +307,8 @@ final class PolyslugServiceProvider extends ServiceProvider
      * The failure is silent in both directions that matter. Nothing errors, nothing logs —
      * the new setting simply reads as `null` (or as `[]`), so a feature added in a minor
      * release is off for exactly the hosts that had customized that area, and a corrected
-     * security default never takes effect. It has been measured on a real upgrade elsewhere
-     * in this fleet: a routing flag added one minor after a host published stayed `null`
-     * for eleven releases.
+     * security default never takes effect. Measured on a real upgrade: a routing flag added
+     * one minor after a host published its config stayed `null` for eleven releases.
      *
      * NOTE: RECURSING IS NOT ENOUGH ON ITS OWN — a LIST is a value, never a structure.
      * `array_merge_recursive()` concatenates lists and `array_replace_recursive()` merges
