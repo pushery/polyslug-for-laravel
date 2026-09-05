@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-09-06
+
+### Changed
+
+- **Nothing in the shipped code — that is the entry, not something missing from it.** The only difference from 0.18.0 is in this package's own development dependencies. Composer ignores a package's `require-dev` when resolving it as a dependency, so an application installing Polyslug gets exactly what 0.18.0 gave it: same classes, same config, same behavior. The version exists so the release line carries the same tree as the development line, and there is nothing here to upgrade for.
+
 ## [0.18.0] - 2026-09-05
 
 ### Fixed
