@@ -4,6 +4,18 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-09-05
+
+### Added
+
+- **A gated model can choose its own robots directive.** A model that `polyslugIsRoutable()` keeps out of hreflang sets and sitemaps still gets a `robots` meta tag, because it can still render for whoever holds the link — and that tag was always `none`. Per spec `none` means `noindex, nofollow`, which is a stronger statement than the gate makes: the gate is about indexability and says nothing about whether the links on the page can be trusted. For a draft, a gated preview or a tenant-internal page, `noindex, follow` is usually what is meant.
+
+  Override `polyslugRobotsDirective(?string $locale = null): string|array` on the model to answer for yourself, as a list (`['noindex', 'follow']`) or a string (`'noindex, follow'`) — both normalize to the same tag, casing and spacing included. The locale handed in is the one the gate refused, so a model gated in some locales and not others can answer per locale.
+
+  **Nothing changes for anyone who says nothing.** The method lives on the `HasPolyslug` trait rather than on the `Sluggable` contract, so a model that does not override it keeps `none`, and an application implementing the contract by hand has no such method at all — the bridge detects that and keeps `none` there too.
+
+  The answer must still keep the page out of the index: it needs `noindex` or `none`, and anything else throws `MisconfiguredPolyslug` instead of silently undoing the gate. An empty answer is refused for a sharper reason than a permissive one — `laravel/head` renders *no* robots tag for it, and a page without one is indexable by default. That vendor behavior is pinned in `tests/Feature/LaravelHeadContractTest.php` rather than read out of its source, and `tests/Feature/RobotsDirectiveTest.php` holds the rest.
+
 ## [0.15.0] - 2026-09-05
 
 ### Fixed
