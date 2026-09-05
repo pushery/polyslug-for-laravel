@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Polyslug;
+use Throwable;
 
 final class SitemapCommand extends Command
 {
@@ -32,6 +33,13 @@ final class SitemapCommand extends Command
 
     /** @var string */
     protected $description = 'Generate an XML sitemap (with hreflang alternates) for the registered sluggable models.';
+
+    /**
+     * Records the resolver could not address, by class.
+     *
+     * @var array<class-string, int>
+     */
+    private array $unaddressed = [];
 
     public function handle(): int
     {
@@ -103,6 +111,7 @@ final class SitemapCommand extends Command
 
         if ($path === null) {
             $this->line($this->render($buffer));
+            $this->reportUnaddressed();
 
             if (count($buffer) > $maxUrls || $bytes > $maxBytes - self::ENVELOPE_RESERVE) {
                 $this->warn('This sitemap is past the protocol limit of '.$maxUrls.' URLs or '
@@ -117,6 +126,7 @@ final class SitemapCommand extends Command
         if ($parts === []) {
             file_put_contents($path, $this->render($buffer));
             $this->info($written.' URL(s) written to ['.$path.'].');
+            $this->reportUnaddressed();
 
             return self::SUCCESS;
         }
@@ -134,8 +144,47 @@ final class SitemapCommand extends Command
 
         file_put_contents($path, $this->renderIndex($base, $parts));
         $this->info($written.' URL(s) written across '.count($parts).' file(s), indexed by ['.$path.'].');
+        $this->reportUnaddressed();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Name every type whose records the resolver threw on, and how many that was.
+     *
+     * The run succeeds either way -- a sitemap missing one type is worth more than no sitemap.
+     * But a skip nobody is told about is how a configured type quietly stops being announced,
+     * so the count goes out on every path that writes a document.
+     */
+    private function reportUnaddressed(): void
+    {
+        foreach ($this->unaddressed as $class => $count) {
+            $this->warn(sprintf(
+                '%s: %d record(s) skipped — the bound %s threw instead of returning a URL. '
+                .'Remove the type from polyslug.sitemap.types, or implement canAddress() on the '
+                .'resolver to say so without throwing.',
+                $class,
+                $count,
+                class_basename(PolyslugUrlResolver::class),
+            ));
+        }
+    }
+
+    /**
+     * Whether the bound resolver says it can address this record.
+     *
+     * Through method_exists() rather than a contract method: declaring `canAddress()` on
+     * PolyslugUrlResolver would break every implementation that already exists, and this is the
+     * additive shape the package uses elsewhere for exactly that reason. A resolver that says
+     * nothing keeps its current behavior.
+     *
+     * A declared refusal is SILENT, unlike a throw. Naming a type as unaddressable is a
+     * decision somebody made, and reporting it every run would train the reader to scroll past
+     * the line that matters.
+     */
+    private function canAddress(Sluggable $model, PolyslugUrlResolver $resolver): bool
+    {
+        return ! method_exists($resolver, 'canAddress') || $resolver->canAddress($model) === true;
     }
 
     /**
@@ -228,9 +277,35 @@ final class SitemapCommand extends Command
         // x-default (the fallback locale); and no x-default alternate was emitted at all, so
         // the same package answered one question two ways. Measured before the change, with
         // locales [de, en] and fallback en: <loc> said /de/, x-default said /en/.
-        $urls = $model->hreflangLinks(
-            fn (string $locale, string $routeKey): string => $resolver->url($model, $locale),
-        );
+        // A RESOLVER THAT CANNOT ADDRESS THIS RECORD IS NOT A FAILED RUN. `url()` returns a
+        // string, so an implementation with nothing to return has only an exception to reach
+        // for -- and this command walks every configured type, so one throw used to end the
+        // whole document. `polyslug.sitemap.types` is configuration filtered on Model and
+        // Sluggable, and neither says anything about whether a type is routed: a model that
+        // never had a route, or one whose route was renamed while the config stayed, is
+        // ordinary rather than exotic.
+        //
+        // The failure direction made it worse. A scheduled run that ends red does not replace
+        // the file it was going to write, so the previous sitemap stays where it is and ages
+        // silently -- which from the outside is indistinguishable from a sitemap being kept up
+        // to date.
+        if (! $this->canAddress($model, $resolver)) {
+            return [];
+        }
+
+        try {
+            $urls = $model->hreflangLinks(
+                fn (string $locale, string $routeKey): string => $resolver->url($model, $locale),
+            );
+        } catch (Throwable) {
+            // Counted rather than swallowed. The run continues, and the operator is told at
+            // the end which types were dropped and how many records that was -- silence here
+            // would trade a loud failure for a quiet one, which is the worse of the two.
+            $class = $model::class;
+            $this->unaddressed[$class] = ($this->unaddressed[$class] ?? 0) + 1;
+
+            return [];
+        }
 
         if ($urls === []) {
             return [];

@@ -4,6 +4,16 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-09-05
+
+### Fixed
+
+- **One type the resolver cannot address no longer costs the whole sitemap.** `PolyslugUrlResolver::url()` returns a `string`, so an implementation with nothing to return has only an exception to reach for — and `polyslug:sitemap` walks every configured type, so a single throw ended the run: no `<urlset>`, no file, a red scheduled job. `polyslug.sitemap.types` is configuration filtered on `Model` and `Sluggable`, and neither says anything about whether a type is routed, so a model nothing routes — or one whose route was renamed while the config stayed — is ordinary rather than exotic. Those records are skipped now and the rest of the document is written. The failure direction is why this mattered more than it sounds: a red scheduled run doesn't replace the file it was going to write, so the previous sitemap stayed in place and aged silently, which from outside looks exactly like a sitemap being kept current. Reported from a consuming application.
+
+### Added
+
+- **`canAddress()` lets a resolver say a model has no public address, without throwing.** It's optional and isn't declared on the interface, so an existing resolver needs no change: `polyslug:sitemap` reaches it through `method_exists()`. A declared refusal is silent, because naming a type as unaddressable is a decision somebody made; a resolver that throws is still survived, but those records are counted and the types named at the end of the run. Only one of the two is a decision, and the output says which happened.
+
 ## [0.17.1] - 2026-09-05
 
 ### Documentation
