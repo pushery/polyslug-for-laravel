@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-09-05
+
+### Documentation
+
+- **A gone page can carry its own head metadata, and it already could.** `polyslugIsGone()` answers `410` by throwing a real `HttpException`, and `laravel/head` resolves an error status off anything implementing `HttpExceptionInterface` — so `Head::errors(fn ($pages) => $pages->status(410, title: '…'))` reaches Polyslug's `410` with no wiring at all. That was true and undocumented, which is the same as untrue for anyone reading. Both halves are now held: the upstream resolver, and a real request through the canonical middleware arriving with that title on the head.
+
 ## [0.17.0] - 2026-09-05
 
 ### Added
