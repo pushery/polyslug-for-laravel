@@ -4,6 +4,38 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-05
+
+### Fixed
+
+- **A published config no longer stops receiving new settings.** The provider merged its shipped defaults with Laravel's `mergeConfigFrom`, which is a single `array_merge` at the top level: it asks one question per top-level key — is it there? A host that published `config/polyslug.php` has every top-level key, so a setting added *inside* one of those blocks by a later release never arrived. The block the host published won whole.
+
+  The failure was silent in both directions that matter. Nothing errored and nothing logged; the new setting simply read as `null`, so a feature added in a minor release was off for exactly the hosts that had customized that area, and a corrected default never took effect. This package has added keys inside existing blocks more than once, so the hosts affected are real rather than hypothetical.
+
+  The merge now recurses through maps while replacing lists whole — a list is a host's complete answer, and merging into it would resurrect an entry they deliberately deleted. `tests/Feature/ConfigMergeDepthTest.php` holds both directions.
+
+- **A token column is now byte-exact on MySQL, so a mixed-case alphabet keeps the entropy it promises.** `$table->string('token')` states no collation, so the column inherits the connection's, and on MySQL that default is case-insensitive. `TokenAlphabet` explicitly invites an application to pass its own alphabet to "get the entropy back", and its validation admits `A-Z`; an application that takes the invitation got a 62-character alphabet the database counted as 36. At the default length of 16 that is roughly a factor of 2^25, on `/go/{token}` — the one path `RandomTokenScheme` exists for. Its collision escalation is calibrated against 36^n as well, so it fired later than the real space warranted.
+
+  Measured per engine with the schema line verbatim: PostgreSQL 18 and SQLite compare byte-exactly and let `abc123` and `AbC123` coexist, while MySQL under `utf8mb4_unicode_ci` resolved one to the other and rejected the second as a duplicate. The new migration is therefore scoped to MySQL, and it reads the column's real type and character set instead of restating them, so a consumer that widened or narrowed the column keeps it.
+
+  Case-insensitive to binary only ever splits equivalence classes, so a unique index that held before still holds and no row is rewritten. One behavior does change on MySQL: `/go/ABC123` no longer resolves to the record holding `abc123`. That is the correction rather than a side effect. It never resolved on the other two engines, so the same request had two answers depending on what was underneath.
+
+- **The sitemap and the page head no longer name different primary addresses for the same record.** `polyslug:sitemap` built its `<xhtml:link>` alternates in its own loop instead of reading `hreflangLinks()`, and the two things it did on its own were the two it got wrong: `<loc>` took the alphabetically first locale while the head announces `x-default` (the fallback locale), and no `x-default` alternate reached the sitemap at all. With locales `de, en` and a fallback of `en`, `<loc>` said `/de/…` and the head said `/en/…` — one package answering one question two ways, which is precisely the disagreement a reciprocal hreflang set exists to prevent.
+
+  The command now reads `hreflangLinks()`, so the locale set, the URLs and the primary address all come from the one place that computes them. Sitemaps regenerate on the next run; nothing in a consumer's code changes.
+
+- **Slug resolution no longer scans the whole table.** Every incoming URL asks for `sluggable_type`, `locale`, `scope` and `lower(slug)` together, and until now `lower(slug)` appeared in exactly one index: the partial unique index that carries the one-current-slug guarantee. A new, deliberately non-partial index on the same signature is added, and the difference is not marginal.
+
+  Measured outside a transaction after `ANALYZE`: on PostgreSQL 18 with 100,000 slug rows the resolution went from a sequential scan discarding 99,999 rows at 18.5 ms to an index scan at 0.094 ms. On MySQL 8.4 with 20,000 rows, from `type=ALL` over 19,283 rows at 18.4 ms to `type=ref` over 1 row at 0.120 ms. The cost was linear in the number of slugs, so it grew quietly with the table.
+
+  The cause is statistics rather than reachability, which is why the fix is a second index and not a rewritten query: a database gathers no expression statistics from a *partial* expression index, so `lower(slug) = ?` fell back to a default selectivity guess of 500 expected matches where there is one, and on that estimate a scan really is cheaper. The planner was choosing correctly from wrong numbers.
+
+  The partial unique index is untouched and still carries uniqueness. The new one carries only the seek and the statistics. Existing installations get it from the migration; nothing else changes.
+
+### Changed
+
+- **A dependency-update PR can no longer swap a supported Laravel major for another; it can only add one.** `renovate.json` now pins `rangeStrategy: widen` for composer `require`. The default was not what it looked like: Renovate documents `auto`, but composer ships its own resolver that turns `auto` into `update-lockfile` for a plain caret range, and composer versioning delegates `update-lockfile` to `replace` as soon as the new version falls outside the range. The day a new Laravel major ships, that default rewrites `^13.0` to `^14.0`, and every application pinned to 13 is locked out by a bot PR nobody read as a support decision. `widen` writes `^13.0 || ^14.0` instead. In-range updates are unaffected either way, and `require-dev` keeps the default, because a toolchain may state its own floors as deeply as it likes.
+
 ## [0.14.0] - 2026-09-04
 
 ### Added
