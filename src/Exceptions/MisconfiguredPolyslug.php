@@ -95,6 +95,24 @@ final class MisconfiguredPolyslug extends RuntimeException
         );
     }
 
+    /**
+     * @param  list<string>  $directives
+     */
+    public static function robotsDirectiveMustPreventIndexing(string $model, array $directives): self
+    {
+        $given = $directives === [] ? 'nothing' : '`'.implode(', ', $directives).'`';
+
+        return new self(
+            $model.'::polyslugRobotsDirective() returned '.$given.', which does not keep the page out '
+            .'of the index. This method is only consulted for a locale polyslugIsRoutable() already '
+            .'refused, so the directive must contain `noindex` or `none` — anything else contradicts '
+            .'the gate that hides the page. An empty answer is refused for a sharper reason: it renders '
+            .'NO robots tag at all, and a page without one is indexable by default. Use '
+            .'`[\'noindex\', \'follow\']` to keep the page out of the index while its links still '
+            .'count, or drop the override to keep the historical `none`.'
+        );
+    }
+
     public static function idLessRequiresUnique(): self
     {
         return new self(

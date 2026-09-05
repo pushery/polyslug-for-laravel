@@ -191,8 +191,16 @@ slug of its own reuses the default locale's, which is what lets one slug serve b
 If `laravel/head` is installed, let it own the `<head>` instead of rendering tags yourself.
 `Head::polyslug($model)` writes ONLY what Polyslug is the authority on — canonical URL (from
 the bound `PolyslugUrlResolver`, not the request), the reciprocal hreflang set, `og:locale`
-plus one `og:locale:alternate` per other locale, and `robots: none` when
+plus one `og:locale:alternate` per other locale, and a `robots` directive when
 `polyslugIsRoutable()` is false. Title, description, cards and JSON-LD stay yours.
+
+That directive defaults to `none`, which per spec means `noindex, nofollow` — a stronger claim
+than the gate makes, since the gate is about indexability and says nothing about the links on
+the page. Override `polyslugRobotsDirective(): string|array` on the model to answer
+`['noindex', 'follow']` instead, which is usually what a draft or a gated preview wants. The
+answer must still contain `noindex` or `none`; anything permissive, and anything empty, throws
+`MisconfiguredPolyslug` rather than quietly un-gating the page. Say nothing and nothing
+changes.
 
 `laravel/head` needs **Laravel 13.17+** — its own floor, not Polyslug's, which is 13.0. On an
 application pinned below that, Composer refuses the install; everything else in Polyslug works

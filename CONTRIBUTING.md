@@ -30,6 +30,6 @@ Rector, and Pest with 100% line and type coverage, plus mutation testing, a
 real-browser end-to-end suite, and cross-engine tests against real PostgreSQL 18 and
 MySQL 8.4 (the engines it runs on in production, where the one-current-slug guarantee
 is enforced by two genuinely different mechanisms — a functional partial index on
-PostgreSQL, virtual generated key columns on MySQL). The maintainers run the full
-gate locally before every release, so a pull request that keeps the public API stable
-and ships tests for its change is easy to accept.
+PostgreSQL, virtual generated key columns on MySQL). Every one of those runs in
+continuous integration on the way to a release, so a pull request that keeps the public
+API stable and ships tests for its change is easy to accept.

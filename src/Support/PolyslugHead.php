@@ -10,6 +10,7 @@ use Laravel\Head\CurrentHead;
 use Laravel\Head\HeadManager;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
+use Polyslug\Exceptions\MisconfiguredPolyslug;
 
 /**
  * Runtime target of the Head::polyslug() macro, registered only when the host has
@@ -32,7 +33,7 @@ final class PolyslugHead
         // — and that is exactly the leak: without this, one shared URL puts a gated page
         // into the index. Applied first because it needs no resolver.
         if (! $model->polyslugIsRoutable($locale)) {
-            $head->hiddenFromRobots();
+            $head->robots(self::gatedRobotsDirective($model, $locale));
         }
 
         $container = Container::getInstance();
@@ -146,6 +147,72 @@ final class PolyslugHead
      * On a /{locale}/... route, pass the locale explicitly instead of relying on this.
      * That is the same rule polyslugRouteKeyForLocale() exists for.
      */
+    /**
+     * The robots directive a gated model gets — normalized, and checked against the
+     * one thing the gate is about.
+     *
+     * method_exists() rather than a method on the Sluggable contract, and that IS the
+     * no-break story: polyslugRobotsDirective() lives on HasPolyslug, so an application
+     * implementing the contract by hand has no such method and keeps the historical
+     * `none`. Putting it on the contract would have broken exactly those applications —
+     * the outcome this option was chosen to avoid.
+     *
+     * @return list<string>
+     */
+    private static function gatedRobotsDirective(Sluggable $model, ?string $locale): array
+    {
+        if (! method_exists($model, 'polyslugRobotsDirective')) {
+            return ['none'];
+        }
+
+        $directives = self::normalizeDirectives($model->polyslugRobotsDirective($locale));
+
+        // `noindex` and `none` are the only two values that keep a page out of the
+        // index. Everything else — including nothing at all — contradicts the branch
+        // this runs in, and would un-gate the page silently rather than loudly.
+        if (array_intersect($directives, ['noindex', 'none']) === []) {
+            throw MisconfiguredPolyslug::robotsDirectiveMustPreventIndexing($model::class, $directives);
+        }
+
+        return $directives;
+    }
+
+    /**
+     * Accepts `'noindex, follow'` and `['noindex', 'follow']` alike, so the rendered
+     * tag cannot depend on which spelling a consumer happened to type.
+     *
+     * Takes mixed rather than string|array on purpose: the method it reads is not on
+     * the contract, so nothing constrains what a consumer returns from it. A value
+     * that carries no usable token normalizes to [] and is refused by the caller —
+     * the same outcome as an empty answer, which is the correct one.
+     *
+     * @return list<string>
+     */
+    private static function normalizeDirectives(mixed $directives): array
+    {
+        $tokens = match (true) {
+            is_string($directives) => explode(',', $directives),
+            is_array($directives) => $directives,
+            default => [],
+        };
+
+        $normalized = [];
+
+        foreach ($tokens as $token) {
+            if (! is_string($token)) {
+                continue;
+            }
+
+            $token = strtolower(trim($token));
+
+            if ($token !== '') {
+                $normalized[] = $token;
+            }
+        }
+
+        return $normalized;
+    }
+
     private static function activeLocale(): string
     {
         $locale = Container::getInstance()->make(ConfigRepository::class)->get('app.locale');

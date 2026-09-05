@@ -950,6 +950,35 @@ trait HasPolyslug
         return true;
     }
 
+    /**
+     * The robots directive written for a locale this model's gate keeps out.
+     *
+     * `none` is the historical answer and stays the default, but it is the STRONGER of
+     * the two statements available: per spec it means `noindex, nofollow`. The gate is
+     * about indexability — it says a page must not appear in results. It says nothing
+     * about whether the links ON that page can be trusted, and `nofollow` asserts they
+     * cannot. For a draft, a gated preview or a tenant-internal page the wanted answer
+     * is usually `noindex, follow`, which keeps the page out of the index while link
+     * equity still flows through it.
+     *
+     * Answer with a string (`'noindex, follow'`) or a list (`['noindex', 'follow']`);
+     * both are normalized to the same tag, so the rendered output cannot depend on
+     * which spelling was typed.
+     *
+     * ⚠️ The answer must still PREVENT INDEXING — it needs `noindex` or `none`. This is
+     * the branch for a page the gate hides, so a permissive directive would contradict
+     * the reason the branch was entered, and an empty one is worse than permissive:
+     * laravel/head renders no tag at all for it, and a page with no robots meta is
+     * indexable by default. Both are refused with MisconfiguredPolyslug rather than
+     * silently un-gating the page.
+     *
+     * @return string|list<string>
+     */
+    public function polyslugRobotsDirective(?string $locale = null): string|array
+    {
+        return 'none';
+    }
+
     public function polyslugSupersededBy(): ?Sluggable
     {
         return null;
