@@ -293,7 +293,14 @@ returning whichever row sorts first.
   Use `polyslugRouteKeyForLocale($locale)`, not `getRouteKey()` — the latter answers for the CURRENT
   locale and would emit the same URL for every language.
 
+  **A model with no public address:** add an optional `canAddress(Sluggable $model): bool` to the
+  resolver and return false for it. `url()` returns a string, so without that channel the only way
+  to refuse is to throw — which `polyslug:sitemap` survives (the record is skipped, the type named
+  at the end) but reports as an accident. A declared refusal is silent. The method is not on the
+  interface, so an existing resolver needs no change.
+
 - `php artisan polyslug:sitemap --path=public/sitemap.xml` — streams all `polyslug.sitemap.types` with hreflang alternates, honoring `polyslugIsRoutable()`.
+  A type the resolver cannot address costs that type, never the document: one throw used to end the whole run, and a red scheduled run leaves the stale file in place.
   One `<url>` per ADDRESS, so a record served under three locales is three entries, each carrying the same alternate set.
   Past 50,000 URLs or 50 MB it writes `sitemap-1.xml`, `sitemap-2.xml`, … beside `--path` and a `<sitemapindex>` at `--path`;
   the index needs absolute URLs, so it takes `app.url` or `--base-url=` and fails rather than writing relative ones.
