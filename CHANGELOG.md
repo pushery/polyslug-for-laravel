@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.2] - 2026-09-06
+
+### Changed
+
+- **Nothing in the package moved — the only file here that ships is the entry you're reading.** Everything committed since 0.18.1 lives in files the release pipeline strips, so `src`, `config`, `database`, `resources` and `composer.json` are identical to what 0.18.1 published. The tag keeps the release line level with the development line; there's nothing to gain by upgrading and nothing to lose by skipping it.
+
 ## [0.18.1] - 2026-09-06
 
 ### Changed
