@@ -4,6 +4,14 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.4] - 2026-09-08
+
+### Fixed
+
+- **`SqidsEncoder` silently collapsed an out-of-range numeric key onto `PHP_INT_MAX` instead of refusing it.** The encoder accepts a string key when every character is a digit, and PHP's `(int)` cast saturates rather than failing — so `'9223372036854775808'` and `9223372036854775807` produced the same token. Two records shared one URL, and whichever lost decoded back to a key it did not own. Such a key now raises `InvalidArgumentException` naming the key, like the encoder's other refusals do. Leading zeros are unaffected: `'007'` is still the same key as `7`, which is the one difference the cast is allowed to make.
+- **A refusal in `make:polyslug` had stopped being observable, and the arm that watched it could not see why.** An empty model name is refused, and the arm asserting that listed the models directory through `File::files()` — which runs through Finder and ignores dotfiles, so the one filename an empty name produces, `.php`, was invisible to exactly the assertion written to catch it. Worse, the stray file outlived the test and made every later run of that arm pass for the wrong reason: the command then failed with "already exists" instead of "a model name is required". Nothing a consumer installs changes here; the scaffolder behaves as it always did. It is listed because it is why the previous release's test evidence was weaker than it read.
+- **The published documentation linked Recipes as a bare directory from a subpage, which breaks once the portal serves canonical URLs with a trailing slash.** A bare directory link is URL-relative, so on `/polyslug-for-laravel/quick-start/` it resolved one level too deep. Recipes now has a real landing page — an ordered table of the twelve app shapes and what each one solves — and both links to it are file links, which resolve the same way with or without the trailing slash. Nothing in the package changed; the docs portal publishes only from a released ref, which is why it rides a release.
+
 ## [0.18.3] - 2026-09-08
 
 ### Changed

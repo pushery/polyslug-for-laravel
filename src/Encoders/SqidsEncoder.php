@@ -35,6 +35,20 @@ final readonly class SqidsEncoder implements IdentityEncoder
                 throw new InvalidArgumentException("The Sqids encoder requires integer keys; got [{$id}].");
             }
 
+            // ctype_digit() says nothing about MAGNITUDE, and (int) SATURATES at PHP_INT_MAX
+            // rather than failing -- so a twenty-digit key and PHP_INT_MAX itself would encode
+            // to the same token. Two records, one URL, and whichever loses decodes back to a
+            // key it does not own. Refused here rather than downstream, because Sqids' own
+            // range error names neither the key nor this encoder.
+            //
+            // Compared after stripping leading zeros, which is the one difference the cast is
+            // allowed to make: `007` is the same key as `7`, and an arm pins that.
+            $magnitude = ltrim($id, '0');
+
+            if (($magnitude === '' ? '0' : $magnitude) !== (string) (int) $id) {
+                throw new InvalidArgumentException("The Sqids encoder requires a key inside the integer range; got [{$id}].");
+            }
+
             $id = (int) $id;
         }
 
