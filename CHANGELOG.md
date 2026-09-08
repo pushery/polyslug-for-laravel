@@ -4,6 +4,13 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.3] - 2026-09-08
+
+### Changed
+
+- **Nothing that ships moved, and the work behind this tag is the suite rather than the package.** Measured against 0.18.2 rather than assumed: of the sixteen files that changed, exactly one is in the release allowlist — `composer.json` — and its only difference is two development dependencies, which the release pipeline strips from the published manifest. So an application installing Polyslug gets what 0.18.2 gave it, byte for byte: same classes, same config, same behavior, nothing to upgrade for and nothing lost by skipping it.
+- **What did change is how much of that behavior is held.** A mutation survey over the shipped tree had left 185 mutants alive — changes to real code that no test notices. Ninety-three of them are now killed by tests that describe the behavior they protect, thirty-two are argued equivalent with the measurement behind each, and one is recorded as not demonstrable on this project's default engine rather than forced into either box. Four subjects are fully worked through: the configuration-refusal messages, the token alphabet, the token store and the doctor command. Several of the defects those tests now pin were invisible from the outside — a batch key that let two model types share one encoder, a cache key that let two per-model overrides share one instance, a refusal that stopped happening when a cache entry was reused, and a 404 path that bought a database query for every guessed URL.
+
 ## [0.18.2] - 2026-09-06
 
 ### Changed
