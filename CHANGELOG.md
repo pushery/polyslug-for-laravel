@@ -4,6 +4,26 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.5] - 2026-09-09
+
+### Fixed
+
+- The attribute-options page shipped `<meta name="description" content="Every">`. Its front
+  matter was unquoted and began with `#[Polyslug]`, and a `#` after whitespace opens a comment
+  in YAML, so everything from there on was discarded.
+- Five pages said `polyslug:doctor` reports an unbound `PolyslugUrlResolver` and one said it
+  does not. It does. The page that denied it now describes the distinction that makes both
+  halves true: the doctor reports it without failing the command, while `polyslug:sitemap`
+  refuses outright, since it cannot produce output without a resolver.
+- The database reference described two migrations against five, which made its rollback
+  paragraph a statement from three migrations ago -- it named what a rollback undoes and left
+  three out.
+
+### Added
+
+- `--base-url`, `canAddress()` and `polyslugLastModified()` are documented in the reference,
+  which promised "every option" while these three appeared only on feature pages.
+
 ## [0.18.4] - 2026-09-08
 
 ### Fixed
