@@ -4,6 +4,14 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.6] - 2026-09-10
+
+### Changed
+
+- **The manifest now declares the PHP extensions the shipped code actually calls** — `ext-ctype` and `ext-mbstring`. No code changed. `src/Encoders/SqidsEncoder.php` calls into ctype and `src/Support/TokenAlphabet.php` into mbstring, and neither was required here.
+
+  **Nothing changes for an install that already worked, and that is worth stating plainly rather than leaving you to check:** `illuminate/support`, a direct dependency of this package, already requires `ext-ctype`, `ext-filter` and `ext-mbstring`, and `illuminate/console` requires `ext-mbstring` too. Every PHP that could resolve this package therefore already had both. What changes is where the requirement is written. A transitive guarantee is a property of somebody else's manifest — nothing that reads ours can see it, `composer check-platform-reqs` included, and it can be narrowed upstream without a signal here.
+
 ## [0.18.5] - 2026-09-09
 
 ### Fixed
