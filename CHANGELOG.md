@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.8] - 2026-09-11
+
+### Fixed
+
+- **A model that extends another one can call its own resolution gate again, and a gate that answers with a foreign query no longer puts a foreign record behind your route.** `polyslugResolveQuery()` declared `Builder<static>` while the builder handed to it is one for the class itself; `Builder` is invariant in its model, so from any model that is not final the two spellings were different types and the call could not be made at all. The gate now declares the type the builder really carries, and `polyslugResolveByKey()` narrows the row back — an override answering with a query for a different model gets `null` instead of that model's record. Nothing changes for a final model with a gate that queries itself, which is every gate the package ships.
+
 ## [0.18.7] - 2026-09-11
 
 ### Fixed

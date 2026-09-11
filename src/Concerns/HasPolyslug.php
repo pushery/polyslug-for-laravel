@@ -762,7 +762,12 @@ trait HasPolyslug
      */
     public function polyslugResolveByKey(mixed $key): ?static
     {
-        return $this->polyslugResolveQuery($this->newQuery())->whereKey($key)->first();
+        $resolved = $this->polyslugResolveQuery($this->newQuery())->whereKey($key)->first();
+
+        // The gate is an override point, and an override is free to return a query for a
+        // different model. Handing that row back would put a foreign record behind this
+        // model's route, with this model's type on it, so it resolves to nothing instead.
+        return $resolved instanceof static ? $resolved : null;
     }
 
     /**
@@ -939,8 +944,18 @@ trait HasPolyslug
     }
 
     /**
-     * @param  Builder<static>  $query
-     * @return Builder<static>
+     * The resolution gate. Override it to constrain which rows a slug may resolve to.
+     *
+     * `self` rather than `static` in the generic, and that is measured rather than a
+     * preference: larastan types `$this->newQuery()` as a builder for the class itself on
+     * every expression, never for the late-static-bound one. A gate declared
+     * `Builder<static>` is therefore uncallable from a model that is not final, because
+     * `Builder` is invariant in its model and the two spellings are two different types
+     * there (phpstan 2.2.13, larastan 3.11.0). `self` is what the builder really carries;
+     * polyslugResolveByKey() narrows the row it finds back to `static`.
+     *
+     * @param  Builder<self>  $query
+     * @return Builder<self>
      */
     public function polyslugResolveQuery(Builder $query): Builder
     {
