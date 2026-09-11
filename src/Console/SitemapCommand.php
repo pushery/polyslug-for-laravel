@@ -8,6 +8,7 @@ use DateTimeInterface;
 use Illuminate\Console\Command;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
@@ -77,14 +78,15 @@ final class SitemapCommand extends Command
             if (! is_a($class, Sluggable::class, true)) {
                 continue;
             }
-            // Stream rows so a giant table never loads into memory at once.
+            // Stream rows so a giant table never loads into memory at once, and through the
+            // model's own gate so a row it hides is not announced (see rows()).
             //
             // A positive branch rather than a `! instanceof` with a `continue`, for the reason
             // TokenStore gives about its own: the class was already checked against Sluggable
             // above, so every row this loop sees is one. The `continue` was a statement no run
             // can execute -- the coverage floor said so -- and it reads to the next person like
             // a case that happens.
-            foreach ($class::query()->lazyById() as $model) {
+            foreach ($this->rows($class) as $model) {
                 if ($model instanceof Sluggable) {
                     foreach ($this->entriesFor($model, $resolver) as $entry) {
                         $size = strlen($entry) + 1;
@@ -147,6 +149,30 @@ final class SitemapCommand extends Command
         $this->reportUnaddressed();
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The rows of one configured type, through the model's own resolution gate.
+     *
+     * Route binding and every resolution path go through polyslugResolveQuery(), so a row the
+     * gate hides answers 404 at its address. Listing it anyway submits an address that does not
+     * exist, and publishes a slug built from a title nobody has released. A crawler is an
+     * anonymous requester and so is this command: a gate that reads a session or a tenant sees
+     * here what a crawler would see.
+     *
+     * method_exists() rather than a contract method, for the reason polyslugLastModified() gives
+     * further down: the gate lives on HasPolyslug, so an application implementing Sluggable by
+     * hand keeps its whole table instead of failing to load.
+     *
+     * @param  class-string<Model>  $class
+     * @return iterable<int, Model>
+     */
+    private function rows(string $class): iterable
+    {
+        $model = new $class;
+        $gated = method_exists($model, 'polyslugResolveQuery') ? $model->polyslugResolveQuery($model->newQuery()) : null;
+
+        return ($gated instanceof Builder ? $gated : $model->newQuery())->lazyById();
     }
 
     /**

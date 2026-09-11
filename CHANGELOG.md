@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.7] - 2026-09-11
+
+### Fixed
+
+- **`polyslug:sitemap` no longer lists a record its own resolution gate hides.** The command read every configured table directly, while route binding and every resolution path in the package go through `polyslugResolveQuery()`. A record the gate refuses therefore answered 404 at its address while the sitemap submitted that address, and its slug, built from a title nobody had released yet, stood in a public document. The rows now come through the same gate, so the sitemap submits what an anonymous request can open: a gate that reads a session or a tenant sees here what a crawler sees. An application that implements `Sluggable` without `HasPolyslug` has no gate to apply and keeps its whole table.
+
 ## [0.18.6] - 2026-09-10
 
 ### Changed
