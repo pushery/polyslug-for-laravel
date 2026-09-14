@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.9] - 2026-09-14
+
+### Fixed
+
+- **Static analysis passes again for a model that is not final, on larastan 3.12.** 0.18.8 declared `polyslugResolveQuery()` as `Builder<self>`, because larastan up to 3.11.0 typed `$this->newQuery()` as a builder for the class itself. larastan 3.12.0 keeps `static` on that call (larastan/larastan#2544), and since `Builder` is invariant in its model, a non-final model's builder no longer satisfied a `self` gate there. The gate declares `Builder<static>` again. A final model sees no difference. `polyslugResolveByKey()` still narrows the row it finds, so an override that answers with a query for a different model still gets `null`. An override that copied the 0.18.8 docblock can go back to `Builder<static>`.
+
 ## [0.18.8] - 2026-09-11
 
 ### Fixed
