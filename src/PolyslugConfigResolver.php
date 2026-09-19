@@ -14,7 +14,7 @@ use ReflectionClass;
  * Resolves a model's PolyslugConfig. A model implementing ConfiguresPolyslug computes
  * its config at runtime (resolved fresh, never cached, so it can vary per tenant);
  * otherwise the static #[Polyslug] attribute is read once via reflection and cached
- * per class. Lives outside the trait so the ConfiguresPolyslug dispatch is analyzed
+ * per class. Lives outside HasPolyslug so the ConfiguresPolyslug dispatch is analyzed
  * generically rather than "in context of" every using model.
  */
 final class PolyslugConfigResolver

@@ -949,9 +949,9 @@ trait HasPolyslug
      * `static` in the generic, because that is what `$this->newQuery()` carries on a model
      * that is not final. larastan up to 3.11.0 typed that call as a builder for the class
      * itself, which made a `Builder<static>` gate uncallable from such a model, so the gate
-     * declared `self` for a while (LARAPAC-5155). larastan 3.12.0 keeps `static` on the call
+     * declared `self` for a while. larastan 3.12.0 keeps `static` on the call
      * (larastan/larastan#2544), and from there on `self` is the spelling a non-final model
-     * cannot satisfy, because `Builder` is invariant in its model (LARAPAC-4975). A final
+     * cannot satisfy, because `Builder` is invariant in its model. A final
      * model is unaffected either way: `static` and the class are the same type there.
      * polyslugResolveByKey() still narrows the row it finds, because an override may answer
      * with a query for a different model.

@@ -85,9 +85,9 @@ final class Polyslug
      *
      * The fallback is passed IN rather than read off the model, and the parameter is a plain
      * object, because the two callers do not share a type: the sitemap command holds a
-     * Sluggable, while HasPolyslug::polyslugUrls() runs on `$this` — and the trait can be used
+     * Sluggable, while HasPolyslug::polyslugUrls() runs on `$this` — and HasPolyslug can be used
      * on a class that does not implement Sluggable at all, which is a supported arrangement.
-     * Typing this Sluggable would be a claim the trait cannot keep. Taking the fallback as an
+     * Typing this Sluggable would be a claim HasPolyslug cannot keep. Taking the fallback as an
      * argument keeps the RULE in one place without inventing a type that fits neither caller.
      *
      * LAZY, and that is not a micro-optimization: `slugLocales()` issues a query whenever the

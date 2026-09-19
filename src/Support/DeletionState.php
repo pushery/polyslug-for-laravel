@@ -7,7 +7,7 @@ namespace Polyslug\Support;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Whether a model is being permanently removed. Lives outside the trait so the
+ * Whether a model is being permanently removed. Lives outside HasPolyslug so the
  * SoftDeletes / isForceDeleting() detection is analyzed generically (with $model typed
  * as Model), rather than "in context of" every using class — which trips method_exists
  * narrowing for classes that do not use SoftDeletes.
