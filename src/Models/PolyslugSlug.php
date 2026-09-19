@@ -28,7 +28,7 @@ use Override;
  * @property Carbon|null $deleted_at
  * @property-read Model|null $sluggable
  */
-final class PolyslugSlug extends Model
+class PolyslugSlug extends Model
 {
     use SoftDeletes;
 

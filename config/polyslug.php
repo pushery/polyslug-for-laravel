@@ -125,11 +125,25 @@ return [
     | every previously generated URL. null uses the Sqids default alphabet.
     | min_length pads tokens to at least that many characters (0 = no padding).
     |
+    | min_length reads the environment, and the alphabet deliberately does not. Padding is a
+    | guessability floor: early ids encode to three or four characters, and a host that wants a
+    | longer short link should not have to publish this file to get one -- publishing freezes
+    | every OTHER default in it too, including a security default a later release corrects. The
+    | alphabet is the opposite case. It is not a floor anyone tightens, it must stay STABLE for
+    | the lifetime of every URL already issued, and a value picked up from a per-environment
+    | variable is exactly how it would stop being stable.
+    |
+    | Tested, not cast: `(int) env(...)` reads an unset variable, a typo and the word `true` all
+    | as 0, which is the value that means "no padding at all". A wrong setting has to keep the
+    | documented default rather than quietly turn the floor off.
+    |
     */
 
     'sqids' => [
         'alphabet' => null,
-        'min_length' => 0,
+        'min_length' => is_numeric($minLength = env('POLYSLUG_SQIDS_MIN_LENGTH'))
+            ? (int) $minLength
+            : 0,
     ],
 
     /*
@@ -157,10 +171,21 @@ return [
     | then regenerates against the committed state and retries, up to max_attempts,
     | before throwing Polyslug\Exceptions\CouldNotWriteSlug.
     |
+    | The ceiling reads the environment, because contention is a property of the host rather than
+    | of this package: an application writing slugs from a queue with many workers may need a
+    | higher one, and getting it should not cost publishing this file -- publishing freezes every
+    | OTHER default in it too, including a security default a later release corrects.
+    |
+    | Tested, not cast: `(int) env(...)` reads an unset variable, a typo and the word `true` all
+    | as 0, and zero attempts here means the first concurrent writer throws. A wrong setting has
+    | to keep the documented default rather than quietly remove the retry.
+    |
     */
 
     'write' => [
-        'max_attempts' => 5,
+        'max_attempts' => is_numeric($maxAttempts = env('POLYSLUG_WRITE_MAX_ATTEMPTS'))
+            ? (int) $maxAttempts
+            : 5,
     ],
 
     /*
@@ -286,13 +311,21 @@ return [
     | 'timeout' are the job's, not the worker's -- a chunk that re-queries its rows
     | is safe to retry, and a long chunk needs a timeout that admits it.
     |
+    | Which is why 'timeout' reads the environment: how long a chunk takes depends on the host's
+    | table and its database, not on this package, and a host that needs a longer one should not
+    | have to publish this file to get it -- publishing freezes every OTHER default in it too.
+    | null stays the default and leaves the framework's own in place. Tested rather than cast,
+    | because `(int) env(...)` reads a typo as 0, and a zero timeout is not "no limit" here.
+    |
     */
 
     'backfill' => [
         'connection' => null,
         'queue' => null,
         'tries' => null,
-        'timeout' => null,
+        'timeout' => is_numeric($backfillTimeout = env('POLYSLUG_BACKFILL_TIMEOUT'))
+            ? (int) $backfillTimeout
+            : null,
     ],
 
     /*
@@ -355,10 +388,25 @@ return [
     | switching it on refuses every scoped model that does not answer yet — the
     | right end state, but not something an update should do to you silently.
     |
+    | It reads the environment, because this is the one switch in this file a host turns on to get
+    | STRICTER, and needing to publish the config to reach it would freeze every other default in
+    | here at the same time -- including a security default a later release corrects.
+    |
+    | Compared against `true` rather than cast. Laravel's env() converts the strings `true` and
+    | `false` and leaves everything else a string, so a bare cast would read
+    | `POLYSLUG_REQUIRE_SCOPE=off` as ON -- and this switch REFUSES resolutions, so a wrong reading
+    | breaks resolving instead of loosening it. Anything that is not an unambiguous `true` keeps
+    | the documented default. Write `POLYSLUG_REQUIRE_SCOPE=true`; `1` is a string here and does
+    | not enable it.
+    |
+    | The stricter validator from ext/filter is deliberately not used: it would have to be declared
+    | in composer.json, which narrows who can install this package, and a boolean comparison does
+    | the job without it.
+    |
     */
 
     'resolution' => [
-        'require_scope' => false,
+        'require_scope' => env('POLYSLUG_REQUIRE_SCOPE', false) === true,
     ],
 
     /*

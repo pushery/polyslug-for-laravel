@@ -4,6 +4,34 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-09-19
+
+### Added
+
+- **Four config keys read the environment, so a host can tighten them without publishing the config file.** Publishing freezes every *other* default in that file too, including a security default a later release corrects, so reaching one switch used to cost all of them.
+
+  | key | variable | what it decides |
+  |---|---|---|
+  | `sqids.min_length` | `POLYSLUG_SQIDS_MIN_LENGTH` | the padding floor for short-link tokens. Early ids encode to three or four characters |
+  | `write.max_attempts` | `POLYSLUG_WRITE_MAX_ATTEMPTS` | how often a slug write retries against a concurrent writer before `CouldNotWriteSlug` |
+  | `backfill.timeout` | `POLYSLUG_BACKFILL_TIMEOUT` | the backfill job's timeout. How long a chunk takes is a property of your table |
+  | `resolution.require_scope` | `POLYSLUG_REQUIRE_SCOPE` | whether a scoped model whose caller names no scope is refused |
+
+  Every default is unchanged, so an application that sets none of them behaves exactly as before. The three numeric ones are tested rather than cast: `(int) env(...)` reads an unset variable and a typo alike as `0`, and `0` means "off" for all three — a wrong setting keeps the documented default instead of quietly removing the floor. `POLYSLUG_REQUIRE_SCOPE` is compared against `true`, so write `POLYSLUG_REQUIRE_SCOPE=true`; `1` is a string to Laravel's `env()` and does not enable it.
+
+  `sitemap.max_urls` and `sitemap.max_bytes` are deliberately **not** in the list. They are the sitemap protocol's own per-file ceilings — 50,000 URLs and 50 MB — and the only direction anybody would move them is up, which produces a file search engines reject.
+
+### Fixed
+
+- **The shipped models are no longer `final`, so a host can extend them.** `PolyslugSlug` and `PolyslugShortLink` are seams: an application that needs a relation, a scope, a cast or an observer on one of them subclasses it, and `final` closed that with a fatal error while the class loads rather than a message anybody could act on. The route left open was copying the model into the application, where it drifts from this one at every update. Static analysis is unaffected — the question of whether a non-final model satisfies the resolution gate was settled in 0.18.9, in the direction that it does, and `composer analyse` passes with zero errors either way. ⚠️ Writing the subclass is now possible; **making this package use it is not yet** — `PolyslugSlug::class` is still named directly at five call sites, so the package goes on instantiating its own class. That half is a config seam with its own decisions and is tracked separately.
+
+### Changed
+
+- **Two packages the shipped code imports are now declared in `require`: `symfony/http-foundation` and `symfony/http-kernel`.** Both were reached only through illuminate's dependency tree, behind `Response` and `HttpException`. **Nothing new is installed** — the lockfile holds 180 packages before and after, and both arrive with illuminate either way. What changes is who promises their version: an undeclared import is one Composer may resolve below what this code calls, and the failure then surfaces as a missing method in a class this manifest never names. Each floor is the base of its major (`^7.0 || ^8.0`) rather than the tighter constraint `laravel/framework` happens to carry, because a floor decides who may install this package. The lean dependency stance is untouched: this package still requires ten `illuminate/*` splits and not the framework.
+
+- **`MissingPolyslugConfig` reads more directly:** *"Model [X] uses HasPolyslug but has no #[Polyslug] attribute."* Code that matches the old message text has to match the new one.
+- **The dev toolchain carries `laravel/mcp` and `laravel/boost`.** They sit in `require-dev`, so nothing a consumer installs, calls or configures changes, and a Renovate rule keeps their constraints following each release. `laravel/ai` was briefly there too and is a `suggest` instead: it is only ever called by a judge-backed eval, this package writes none, and it requires `aws/aws-sdk-php` for a provider nothing here calls — 67 MB and 3512 files in every checkout and every CI lane. Still nothing a consumer installs either way; the entry is corrected rather than followed by a second one, because both movements land in the same unreleased section and a reader should not have to net them out.
+
 ## [0.18.9] - 2026-09-14
 
 ### Fixed

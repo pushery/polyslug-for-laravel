@@ -20,7 +20,7 @@ use Polyslug\Contracts\Sluggable;
  * Dispatcher::dispatchToQueue and pushCommandToQueue resolve the connection and queue
  * through ReadsClassAttributes::getAttributeValue(), which falls back to a public property
  * of that name. Queue::createPayload reads `tries` and `timeout` the same way. Read at the
- * framework source rather than assumed, because "the trait is how you do this" is the
+ * framework source rather than assumed, because "the queue concern is how you do this" is the
  * obvious reading and would have added a dependency for nothing.
  *
  * Why it matters here rather than in general: a backfill walks an entire table. Left on the

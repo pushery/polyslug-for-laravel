@@ -125,7 +125,7 @@ final class DoctorCommand extends Command
             // from, not by getDeclaringClass(): PHP flattens a trait's methods into the
             // using class, so getDeclaringClass() answers with the model for an
             // un-overridden method just as it does for an overridden one. getFileName()
-            // keeps pointing at the trait until someone actually writes their own.
+            // keeps pointing at HasPolyslug until someone actually writes their own.
             //
             // A model inheriting an override from its own base class therefore also reads
             // as gated, which is right — that is a decision, just made one level up.

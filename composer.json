@@ -27,9 +27,12 @@
         "illuminate/routing": "^13.0",
         "illuminate/support": "^13.0",
         "illuminate/view": "^13.0",
-        "sqids/sqids": "^0.5.0"
+        "sqids/sqids": "^0.5.0",
+        "symfony/http-foundation": "^7.0 || ^8.0",
+        "symfony/http-kernel": "^7.0 || ^8.0"
     },
     "suggest": {
+        "laravel/ai": "Required only to score evals with a real judge. Not a dev dependency: it requires aws/aws-sdk-php for a provider this package never calls, which is 67 MB and 3512 files in every checkout and every CI lane.",
         "laravel/head": "Lets a Polyslug model describe its own <head>: Head::polyslug($model) writes the canonical URL, the reciprocal hreflang set, the Open Graph locale set and the robots directive from the model's own slug data. Needs Laravel 13.17+, which is laravel/head's own floor - Polyslug itself needs only 13.0."
     },
     "autoload": {

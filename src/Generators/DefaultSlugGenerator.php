@@ -129,7 +129,7 @@ final class DefaultSlugGenerator implements SlugGenerator
     {
         $lowerSlug = Str::lower($slug);
 
-        // The model's own list when the trait resolved one, the inherited list otherwise. A
+        // The model's own list when HasPolyslug resolved one, the inherited list otherwise. A
         // model that filters or clears its reserved words does so through
         // polyslugReservedWords(), and by the time the request arrives here that answer is
         // already baked in.

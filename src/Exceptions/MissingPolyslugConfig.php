@@ -14,7 +14,7 @@ final class MissingPolyslugConfig extends RuntimeException
     public function __construct(string $model)
     {
         parent::__construct(
-            "Model [{$model}] uses the HasPolyslug trait but has no #[Polyslug] attribute."
+            "Model [{$model}] uses HasPolyslug but has no #[Polyslug] attribute."
         );
     }
 }

@@ -19,7 +19,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-final class PolyslugShortLink extends Model
+class PolyslugShortLink extends Model
 {
     protected $table = 'polyslug_short_links';
 

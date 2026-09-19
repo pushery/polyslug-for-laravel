@@ -139,7 +139,7 @@ final readonly class TokenAlphabet
     /** How many distinct tokens exist at exactly the given length — N^length, as a float past 2^63. */
     public function spaceFor(int $length): float
     {
-        // Parenthesised because ** binds tighter than a cast: without them the exponent is
+        // Parenthesized because ** binds tighter than a cast: without them the exponent is
         // computed first and the cast describes a value that already exists.
         return ((float) $this->size()) ** $length;
     }
