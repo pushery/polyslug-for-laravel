@@ -85,7 +85,7 @@ trait HasPolyslug
         //
         // Built here rather than by overriding `newMorphMany()`, because that hook is shared:
         // overriding it would silently change every OTHER morphMany on a consumer's model too.
-        $instance = $this->newRelatedInstance(PolyslugSlug::class);
+        $instance = $this->newRelatedInstance(PolyslugSlug::model());
 
         // The morph column names are written out rather than derived through `getMorphs()`:
         // this package ships the migration that creates them, so they are fixed, and the
@@ -262,7 +262,7 @@ trait HasPolyslug
         $scheme = Container::getInstance()->make(TokenScheme::class);
 
         for ($attempt = 0; $attempt < self::POLYSLUG_SHORT_LINK_ATTEMPTS; $attempt++) {
-            $existing = PolyslugShortLink::query()->where($target)->value('token');
+            $existing = PolyslugShortLink::model()::query()->where($target)->value('token');
 
             if (is_string($existing)) {
                 return $existing;
@@ -271,12 +271,12 @@ trait HasPolyslug
             $token = $scheme->draw($attempt, static function (): int {
                 // A lower bound on how many short links exist, from the highest row id — the
                 // same hint the identity store uses, and only a counted scheme ever asks.
-                $max = PolyslugShortLink::query()->max('id');
+                $max = PolyslugShortLink::model()::query()->max('id');
 
                 return is_numeric($max) ? (int) $max : 0;
             });
 
-            if (PolyslugShortLink::query()->insertOrIgnore([...$target, 'token' => $token, 'created_at' => Carbon::now(), 'updated_at' => Carbon::now()]) > 0) {
+            if (PolyslugShortLink::model()::query()->insertOrIgnore([...$target, 'token' => $token, 'created_at' => Carbon::now(), 'updated_at' => Carbon::now()]) > 0) {
                 return $token;
             }
 
@@ -574,7 +574,7 @@ trait HasPolyslug
 
                 $current?->update(['is_current' => false]);
 
-                $inserted = PolyslugSlug::query()->insertOrIgnore([
+                $inserted = PolyslugSlug::model()::query()->insertOrIgnore([
                     'sluggable_type' => $this->getMorphClass(),
                     'sluggable_id' => $this->polyslugKeyString(),
                     'locale' => $locale,
@@ -676,7 +676,7 @@ trait HasPolyslug
      */
     private function polyslugRivalHolders(string $slug, string $locale, string $scope): Builder
     {
-        return PolyslugSlug::query()
+        return PolyslugSlug::model()::query()
             ->where('sluggable_type', $this->getMorphClass())
             ->where('locale', $locale)
             ->where('scope', $scope)
@@ -811,7 +811,7 @@ trait HasPolyslug
             return null;
         }
 
-        $query = PolyslugSlug::query()
+        $query = PolyslugSlug::model()::query()
             ->where('sluggable_type', $this->getMorphClass())
             ->where('locale', $this->polyslugLocale())
             ->whereRaw('lower(slug) = ?', [Str::lower($slug)]);

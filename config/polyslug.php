@@ -323,9 +323,7 @@ return [
         'connection' => null,
         'queue' => null,
         'tries' => null,
-        'timeout' => is_numeric($backfillTimeout = env('POLYSLUG_BACKFILL_TIMEOUT'))
-            ? (int) $backfillTimeout
-            : null,
+        'timeout' => is_numeric($backfillTimeout = env('POLYSLUG_BACKFILL_TIMEOUT')) ? (int) $backfillTimeout : null,
     ],
 
     /*
@@ -422,6 +420,29 @@ return [
 
     'types' => [
         // 'page' => \App\Models\Page::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Replacing Polyslug's own models
+    |--------------------------------------------------------------------------
+    |
+    | A host that needs its own relations, scopes or casts on a slug or a short-link row
+    | subclasses the model and maps it here, keyed by the package class. Polyslug then uses the
+    | subclass on every path: every query, every new row, and the `slugs` relation.
+    |
+    | A class that does not exist, or does not extend the package class, is ignored and the
+    | package class is used instead. Obeying it would fail in the middle of a request or a queued
+    | job, long after boot.
+    |
+    | Existing rows need no migration when this changes. Every type column Polyslug writes holds
+    | the type of the model that owns the row, never the class of the row itself.
+    |
+    */
+
+    'models' => [
+        // \Polyslug\Models\PolyslugSlug::class => \App\Models\Slug::class,
+        // \Polyslug\Models\PolyslugShortLink::class => \App\Models\ShortLink::class,
     ],
 
 ];

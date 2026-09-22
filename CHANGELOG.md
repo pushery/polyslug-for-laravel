@@ -4,6 +4,16 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-09-22
+
+### Added
+
+- **The package's models are replaceable.** Map `PolyslugSlug` or `PolyslugShortLink` to your own subclass in the new `polyslug.models` config key, and Polyslug uses that class on every path: every query, every row it writes, and the `slugs` relation. A class that does not exist, or does not extend the package class, is ignored in favor of the package class. `PolyslugSlug::model()` and `PolyslugSlug::resolve()` give your own code the same answer. Existing rows need no migration: every type column Polyslug writes holds the type of the model that owns the row, never the class of the row itself.
+
+### Changed
+
+- **The backfill timeout reads as one expression in the published config.** `config/polyslug.php` wrote the same ternary over three lines; `POLYSLUG_BACKFILL_TIMEOUT` and the value it produces are unchanged, so a consumer who republishes the file sees one line where three stood and nothing else.
+
 ## [0.19.0] - 2026-09-19
 
 ### Added
