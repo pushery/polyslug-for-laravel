@@ -151,7 +151,7 @@ final class DefaultSlugGenerator implements SlugGenerator
      */
     private function existsInStore(string $slug, SlugRequest $request, PolyslugConfig $config): bool
     {
-        $query = PolyslugSlug::query()
+        $query = PolyslugSlug::model()::query()
             ->where('sluggable_type', $request->sluggableType)
             ->where('locale', $request->locale)
             ->where('scope', $request->scope)

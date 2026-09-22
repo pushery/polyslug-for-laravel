@@ -24,7 +24,7 @@ final class ShortLinkController
 {
     public function __invoke(string $token): RedirectResponse
     {
-        $link = PolyslugShortLink::query()->where('token', $token)->first();
+        $link = PolyslugShortLink::model()::query()->where('token', $token)->first();
 
         // No such link, or no way to build the target URL → a clean 404.
         if ($link === null || ! Container::getInstance()->bound(PolyslugUrlResolver::class)) {

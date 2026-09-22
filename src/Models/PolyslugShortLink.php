@@ -6,6 +6,7 @@ namespace Polyslug\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
+use Polyslug\Models\Concerns\Replaceable;
 
 /**
  * A stable short link for a sluggable model in one locale. /go/{token} 301s to the
@@ -21,6 +22,8 @@ use Illuminate\Support\Carbon;
  */
 class PolyslugShortLink extends Model
 {
+    use Replaceable;
+
     protected $table = 'polyslug_short_links';
 
     /** @var list<string> */

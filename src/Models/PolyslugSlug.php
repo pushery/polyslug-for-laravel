@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Override;
+use Polyslug\Models\Concerns\Replaceable;
 
 /**
  * One slug for a sluggable model in one locale and uniqueness scope. At most one row
@@ -30,6 +31,7 @@ use Override;
  */
 class PolyslugSlug extends Model
 {
+    use Replaceable;
     use SoftDeletes;
 
     protected $table = 'polyslug_slugs';

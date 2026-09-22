@@ -202,8 +202,8 @@ the bound `PolyslugUrlResolver`, not the request), the reciprocal hreflang set, 
 `og:locale:alternate` per other locale, and a `robots` directive when
 `polyslugIsRoutable()` is false. Title, description, cards and JSON-LD stay yours.
 
-⚠️ **A site-wide robots hint goes through `Head::defaults()`, never after `Head::polyslug()`.**
-`laravel/head` REPLACES a string tag, so `Head::polyslug($gated)->robots('max-image-preview:large')`
+**A site-wide robots hint goes through `Head::defaults()`, never after `Head::polyslug()`.**
+`laravel/head` replaces a string tag, so `Head::polyslug($gated)->robots('max-image-preview:large')`
 erases the gate's `none` and publishes a page the app is hiding — nothing red, nothing logged.
 A default applies as the base and loses to Polyslug, which is the outcome you want.
 
@@ -259,7 +259,7 @@ blocking, which is the state a mirror lands in when its upstream events arrive o
 upstream renames A to `y` and gives `x` to B, B's delivery arrives first, and B is named
 `x-2` forever while the source says `x`. Add `reclaimActive: true` to take the name from the
 live holder — its row is retired inside the same transaction, so the name is never owned by
-nobody, and its old URL still resolves. ⚠️ The displaced record then has NO current slug for
+nobody, and its old URL still resolves. The displaced record then has **no** current slug for
 that locale until its own source is synced; the package cannot know what it should be called
 instead. Listen for `Polyslug\Events\SlugReclaimed` (claimant, locale, slug,
 previousOwnerType, previousOwnerId) and re-sync from there.
