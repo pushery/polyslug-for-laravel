@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-10-03
+
+### Changed
+
+- **`composer.json` no longer suggests `laravel/ai`.** The suggestion described a tool this repository uses to test itself, not something an application installing the package needs.
+
 ## [0.20.0] - 2026-09-22
 
 ### Added
