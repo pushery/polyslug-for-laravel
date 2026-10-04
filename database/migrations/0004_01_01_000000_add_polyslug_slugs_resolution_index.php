@@ -9,8 +9,11 @@ use Illuminate\Support\Facades\Schema;
 /**
  * An index for the path every incoming URL takes.
  *
- * Slug resolution asks for `sluggable_type = ? AND locale = ? AND scope = ? AND lower(slug) = ?`
- * (HasPolyslug::resolveBySlug). Until now `lower(slug)` appeared in exactly one index — the
+ * Slug resolution asks for `sluggable_type = ? AND locale = ? AND lower(slug) = ?`, and for
+ * `scope = ?` only when the model names its resolution scope (HasPolyslug::resolveBySlug).
+ * Migration 0006 rebuilds this index with the slug ahead of the scope, because with the scope
+ * third a resolution that names none could not seek on the slug. Until now `lower(slug)`
+ * appeared in exactly one index — the
  * PARTIAL unique index that carries the one-current-slug guarantee — and every resolution was a
  * full table scan.
  *
@@ -51,7 +54,7 @@ return new class extends Migration
             // and a scope key differ long before 64 characters — and the functional part takes
             // no prefix, so LOWER(slug) is indexed whole.
             DB::statement(
-                'CREATE INDEX polyslug_slugs_resolution ON polyslug_slugs '
+                'CREATE INDEX polyslug_slugs_resolution ON '.$this->table('polyslug_slugs').' '
                 .'(sluggable_type(64), locale(16), scope(64), (LOWER(slug)))'
             );
 
@@ -61,7 +64,7 @@ return new class extends Migration
         // PostgreSQL + SQLite: the same functional index, deliberately WITHOUT the partial
         // WHERE clause. Adding it back would reproduce the defect this migration exists for.
         DB::statement(
-            'CREATE INDEX polyslug_slugs_resolution ON polyslug_slugs '
+            'CREATE INDEX polyslug_slugs_resolution ON '.$this->table('polyslug_slugs').' '
             .'(sluggable_type, locale, scope, lower(slug))'
         );
     }
@@ -69,11 +72,21 @@ return new class extends Migration
     public function down(): void
     {
         if (Schema::getConnection()->getDriverName() === 'mysql') {
-            DB::statement('DROP INDEX polyslug_slugs_resolution ON polyslug_slugs');
+            DB::statement('DROP INDEX polyslug_slugs_resolution ON '.$this->table('polyslug_slugs'));
 
             return;
         }
 
         DB::statement('DROP INDEX polyslug_slugs_resolution');
+    }
+
+    /**
+     * A table as raw SQL has to name it: with the connection's prefix, quoted by its grammar.
+     * The schema and query builders apply the prefix themselves; a statement written by hand
+     * gets it only through here.
+     */
+    private function table(string $name): string
+    {
+        return Schema::getConnection()->getQueryGrammar()->wrapTable($name);
     }
 };

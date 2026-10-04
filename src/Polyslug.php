@@ -78,17 +78,16 @@ final class Polyslug
      * They come apart when one slug is served under several addresses; a model says so by
      * implementing ProvidesAddressLocales, and that contract's docblock has the full reasoning.
      *
-     * Resolved HERE rather than in each caller because there are two of them — the URL set on
-     * the model, which feeds every hreflang link and `<head>` tag, and the sitemap command —
-     * and the whole point of the guarantee is that those two cannot disagree. Two copies of an
-     * `instanceof` are two things to keep in step.
+     * Resolved in one place because everything that announces a record reads it: the URL set on
+     * the model feeds every hreflang link and `<head>` tag, and the sitemap command reads the
+     * same set through hreflangLinks(). The whole point of the guarantee is that those cannot
+     * disagree.
      *
-     * The fallback is passed IN rather than read off the model, and the parameter is a plain
-     * object, because the two callers do not share a type: the sitemap command holds a
-     * Sluggable, while HasPolyslug::polyslugUrls() runs on `$this` — and HasPolyslug can be used
-     * on a class that does not implement Sluggable at all, which is a supported arrangement.
-     * Typing this Sluggable would be a claim HasPolyslug cannot keep. Taking the fallback as an
-     * argument keeps the RULE in one place without inventing a type that fits neither caller.
+     * The fallback is passed in rather than read off the model, and the parameter is a plain
+     * object, because the caller, HasPolyslug::polyslugUrls(), runs on `$this`, and HasPolyslug
+     * can be used on a class that does not implement Sluggable at all, which is a supported
+     * arrangement. Typing this Sluggable would be a claim HasPolyslug cannot keep. Taking the
+     * fallback as an argument keeps the rule in one place without inventing a type.
      *
      * LAZY, and that is not a micro-optimization: `slugLocales()` issues a query whenever the
      * slugs relation is not eager-loaded. Taking the list by value would make every model that

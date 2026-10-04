@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Events;
 
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -19,8 +20,12 @@ use Illuminate\Database\Eloquent\Model;
  * The previous owner is named by type and key rather than handed over as a model. Loading
  * it would cost a query on every takeover, and it would bypass whatever resolution gate
  * that model has — the caller is better placed to decide both.
+ *
+ * Dispatched after the outermost database transaction commits. A takeover that an enclosing
+ * transaction rolls back never reaches a listener, so a listener never re-syncs a record that
+ * still holds its name.
  */
-final readonly class SlugReclaimed
+final readonly class SlugReclaimed implements ShouldDispatchAfterCommit
 {
     public function __construct(
         public Model $claimant,

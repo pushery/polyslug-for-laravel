@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Polyslug\Support;
 
+use Closure;
+
 /**
  * The inputs a SlugGenerator needs to produce a unique slug: the source text, the
  * morph type and uniqueness scope it competes within, its locale, and the id of the
@@ -18,6 +20,14 @@ final readonly class SlugRequest
      *                                       none and the generator falls back to the inherited
      *                                       list, which is what a hand-built request gets, so
      *                                       this parameter stays purely additive.
+     * @param  string|null  $connection  The connection the model's slug rows live on: the one
+     *                                   its `slugs()` relation reads from. null leaves the slug
+     *                                   model's own connection, which is what a hand-built
+     *                                   request gets.
+     * @param  (Closure(): string)|null  $identity  The record's encoded identity, for a model whose
+     *                                              URL is the slug alone: where the source yields
+     *                                              no slug, the identity takes its place. Called only
+     *                                              then, because encoding may issue a token.
      */
     public function __construct(
         public string $source,
@@ -26,5 +36,7 @@ final readonly class SlugRequest
         public string $scope = '',
         public ?string $exceptId = null,
         public ?array $reserved = null,
+        public ?string $connection = null,
+        public ?Closure $identity = null,
     ) {}
 }

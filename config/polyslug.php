@@ -24,7 +24,8 @@ return [
     | NOT SECURITY: a Sqids token decodes straight back to the primary key, so every
     | URL leaks the key, the creation order and the growth rate, and an unguessable
     | URL becomes a constructible one. That is a decision to make deliberately, which
-    | is why it is no longer what you get by not deciding.
+    | is why it is no longer what you get by not deciding. It needs the bcmath or gmp
+    | extension; polyslug:doctor reports an encoder it cannot build.
     |
     | SWITCHING ENCODERS WITHOUT BREAKING LINKS. Put the old encoder in
     | legacy_decoders below: existing URLs keep resolving through it, and the
@@ -51,7 +52,8 @@ return [
     | up yields to one character more rather than failing to issue a URL — so a short
     | setting is a real choice and not a trap that surfaces months later as a 500 on
     | a GET. 'alphabet' is null for the default base-36 set (0-9 a-z); pass your own
-    | to change the character set, which must be URL-unreserved and repeat nothing.
+    | to change the character set: A-Z a-z 0-9 - ~, no character twice. `_` separates the
+    | slug from the token in a URL and `.` can make a token the segment `.` or `..`.
     |
     | RANDOM (the default) draws every token at random, so the URL says nothing about
     | the record: not its key, not its age, not how many others exist. This is the
@@ -133,15 +135,16 @@ return [
     | the lifetime of every URL already issued, and a value picked up from a per-environment
     | variable is exactly how it would stop being stable.
     |
-    | Tested, not cast: `(int) env(...)` reads an unset variable, a typo and the word `true` all
-    | as 0, which is the value that means "no padding at all". A wrong setting has to keep the
-    | documented default rather than quietly turn the floor off.
+    | Tested, not cast: `(int) env(...)` reads an unset variable and a typo as 0, which is the
+    | value that means "no padding at all", and the word `true` as 1, because env() turns it into
+    | a boolean first. A negative number passes a test for a number, and Sqids refuses a negative
+    | length, so every token would throw. A value below 0 keeps the default.
     |
     */
 
     'sqids' => [
         'alphabet' => null,
-        'min_length' => is_numeric($minLength = env('POLYSLUG_SQIDS_MIN_LENGTH'))
+        'min_length' => is_numeric($minLength = env('POLYSLUG_SQIDS_MIN_LENGTH')) && (int) $minLength >= 0
             ? (int) $minLength
             : 0,
     ],
@@ -176,14 +179,15 @@ return [
     | higher one, and getting it should not cost publishing this file -- publishing freezes every
     | OTHER default in it too, including a security default a later release corrects.
     |
-    | Tested, not cast: `(int) env(...)` reads an unset variable, a typo and the word `true` all
-    | as 0, and zero attempts here means the first concurrent writer throws. A wrong setting has
-    | to keep the documented default rather than quietly remove the retry.
+    | Tested, not cast: `(int) env(...)` reads an unset variable and a typo as 0, and zero
+    | attempts here means the first concurrent writer throws (the word `true` reads as 1, because
+    | env() turns it into a boolean first). `0`, `0.5` and `-3` pass a test for a number as well,
+    | so a value below 1 keeps the documented default rather than quietly remove the retry.
     |
     */
 
     'write' => [
-        'max_attempts' => is_numeric($maxAttempts = env('POLYSLUG_WRITE_MAX_ATTEMPTS'))
+        'max_attempts' => is_numeric($maxAttempts = env('POLYSLUG_WRITE_MAX_ATTEMPTS')) && (int) $maxAttempts >= 1
             ? (int) $maxAttempts
             : 5,
     ],
@@ -255,6 +259,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Retired slugs
+    |--------------------------------------------------------------------------
+    |
+    | A former slug redirects to the record's current address. One retired with
+    | $model->retireSlug() does not: after a rename that must not keep pointing at
+    | the record, such as one forced by a trademark complaint, a request for the
+    | old slug answers `status` (410 Gone by default, or 404) once the application
+    | has answered. Render resources/views/errors/410.blade.php to tell the visitor
+    | the address was renamed.
+    |
+    */
+
+    'retired' => [
+        'status' => 410,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Redirect analytics
     |--------------------------------------------------------------------------
     |
@@ -315,7 +337,8 @@ return [
     | table and its database, not on this package, and a host that needs a longer one should not
     | have to publish this file to get it -- publishing freezes every OTHER default in it too.
     | null stays the default and leaves the framework's own in place. Tested rather than cast,
-    | because `(int) env(...)` reads a typo as 0, and a zero timeout is not "no limit" here.
+    | because `(int) env(...)` reads a typo as 0, and a zero timeout is not "no limit" here: a
+    | value below 1 keeps the default.
     |
     */
 
@@ -323,7 +346,7 @@ return [
         'connection' => null,
         'queue' => null,
         'tries' => null,
-        'timeout' => is_numeric($backfillTimeout = env('POLYSLUG_BACKFILL_TIMEOUT')) ? (int) $backfillTimeout : null,
+        'timeout' => is_numeric($backfillTimeout = env('POLYSLUG_BACKFILL_TIMEOUT')) && (int) $backfillTimeout >= 1 ? (int) $backfillTimeout : null,
     ],
 
     /*
@@ -397,9 +420,9 @@ return [
     | the documented default. Write `POLYSLUG_REQUIRE_SCOPE=true`; `1` is a string here and does
     | not enable it.
     |
-    | The stricter validator from ext/filter is deliberately not used: it would have to be declared
-    | in composer.json, which narrows who can install this package, and a boolean comparison does
-    | the job without it.
+    | filter_var() with FILTER_VALIDATE_BOOL is deliberately not used: it would also read `1`,
+    | `on` and `yes` as true, and a switch that refuses resolutions keeps the one spelling that
+    | enables it.
     |
     */
 

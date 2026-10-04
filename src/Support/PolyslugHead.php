@@ -178,15 +178,6 @@ final class PolyslugHead
     }
 
     /**
-     * The application's current locale, read the way the framework itself stores it —
-     * the same reasoning (and the same one line) as HasPolyslug::polyslugLocale(),
-     * which is private and stays that way: an optional integration is a poor reason to
-     * widen a shipped trait's public surface.
-     *
-     * On a /{locale}/... route, pass the locale explicitly instead of relying on this.
-     * That is the same rule polyslugRouteKeyForLocale() exists for.
-     */
-    /**
      * The robots directive a gated model gets — normalized, and checked against the
      * one thing the gate is about.
      *
@@ -237,16 +228,34 @@ final class PolyslugHead
     ];
 
     /**
-     * Directives that carry a value, and what a valid value looks like.
+     * Directives that carry a value: what a valid value looks like, and how a reader writes it.
      *
-     * @var array<string, non-empty-string>
+     * @var array<string, array{pattern: non-empty-string, shape: non-empty-string}>
      */
     private const array ROBOTS_VALUED = [
-        'max-snippet' => '/^-?\d+$/D',
-        'max-video-preview' => '/^-?\d+$/D',
-        'max-image-preview' => '/^(none|standard|large)$/D',
-        'unavailable_after' => '/^\S.*$/D',
+        'max-snippet' => ['pattern' => '/^-?\d+$/D', 'shape' => 'N'],
+        'max-video-preview' => ['pattern' => '/^-?\d+$/D', 'shape' => 'N'],
+        'max-image-preview' => ['pattern' => '/^(none|standard|large)$/D', 'shape' => 'none|standard|large'],
+        'unavailable_after' => ['pattern' => '/^\S.*$/D', 'shape' => 'DATE'],
     ];
+
+    /**
+     * Every directive the robots check accepts, as a reader writes it: the standalone keywords,
+     * then each valued directive with the shape of its value. The refusal message lists these,
+     * so it names exactly what the check lets through.
+     *
+     * @return list<string>
+     */
+    public static function robotsVocabulary(): array
+    {
+        $valued = [];
+
+        foreach (self::ROBOTS_VALUED as $name => $directive) {
+            $valued[] = $name.':'.$directive['shape'];
+        }
+
+        return [...self::ROBOTS_KEYWORDS, ...$valued];
+    }
 
     /**
      * Every token a crawler would recognize, or the ones it would not.
@@ -271,7 +280,7 @@ final class PolyslugHead
             // A valued directive is `name:value`, and the value is checked as well as the name:
             // `max-image-preview:huge` is as inert as a misspelled keyword.
             $name = str_contains($directive, ':') ? strstr($directive, ':', true) : null;
-            $pattern = is_string($name) ? (self::ROBOTS_VALUED[$name] ?? null) : null;
+            $pattern = is_string($name) ? (self::ROBOTS_VALUED[$name]['pattern'] ?? null) : null;
 
             if ($pattern !== null && preg_match($pattern, substr($directive, strlen((string) $name) + 1)) === 1) {
                 continue;
@@ -319,6 +328,15 @@ final class PolyslugHead
         return $normalized;
     }
 
+    /**
+     * The application's current locale, read the way the framework itself stores it —
+     * the same reasoning (and the same one line) as HasPolyslug::polyslugLocale(),
+     * which is private and stays that way: an optional integration is a poor reason to
+     * widen a shipped trait's public surface.
+     *
+     * On a /{locale}/... route, pass the locale explicitly instead of relying on this.
+     * That is the same rule polyslugRouteKeyForLocale() exists for.
+     */
     private static function activeLocale(): string
     {
         $locale = Container::getInstance()->make(ConfigRepository::class)->get('app.locale');

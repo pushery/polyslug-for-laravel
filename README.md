@@ -114,6 +114,7 @@ Rename the page and the old URL `301`s to the new one, by itself.
 - PostgreSQL 18+, MySQL 8.4+, or SQLite — the uniqueness guarantees are enforced natively on
   each, and the full suite runs against all three. So Polyslug works on Laravel Cloud
   (serverless Postgres + MySQL 8.4 LTS) with no extra configuration.
+- The `bcmath` or `gmp` extension, only if you use `SqidsEncoder`
 
 ## Security
 

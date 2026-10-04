@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polyslug\Encoders;
 
 use Override;
+use Polyslug\Contracts\BulkIdentityDecoder;
 use Polyslug\Contracts\BulkIdentityEncoder;
 use Polyslug\Contracts\StoresTokensPerRecord;
 use Polyslug\Contracts\TokenScheme;
@@ -25,14 +26,15 @@ use Polyslug\Support\TokenStore;
  * {@see RandomTokenEncoder} is the one that makes a URL unguessable.
  *
  * Like the random encoder it STORES the mapping (polyslug_tokens), so the token is stable
- * per record, deleting a record never hands its token to another, and switching to this
- * encoder over a table full of random tokens starts counting past them instead of fighting
- * them — every existing URL keeps resolving.
+ * per record, deleting a record never hands its token to another (its row stays, and only
+ * removing that row frees the token), and switching to this encoder over a table full of
+ * random tokens starts counting past them instead of fighting them — every existing URL
+ * keeps resolving.
  *
  * Configure the starting width and the alphabet with `polyslug.sequential_token`, or per
  * model with `#[Polyslug(encoderOptions: ['length' => …, 'alphabet' => …])]`.
  */
-final readonly class SequentialTokenEncoder implements BulkIdentityEncoder, StoresTokensPerRecord
+final readonly class SequentialTokenEncoder implements BulkIdentityDecoder, BulkIdentityEncoder, StoresTokensPerRecord
 {
     /** Counting starts at the first token there is, so the first record gets a one-character URL. */
     public const int DEFAULT_LENGTH = 1;
@@ -41,10 +43,16 @@ final readonly class SequentialTokenEncoder implements BulkIdentityEncoder, Stor
 
     private TokenScheme $tokenScheme;
 
-    public function __construct(int $length = self::DEFAULT_LENGTH, ?TokenAlphabet $alphabet = null)
+    /**
+     * @param  bool  $ownSpace  whether this space belongs to the models that configured it through
+     *                          their encoderOptions; it is then counted from the rows of the model
+     *                          asking, so its shortest tokens come first however many rows the
+     *                          rest of the table holds
+     */
+    public function __construct(int $length = self::DEFAULT_LENGTH, ?TokenAlphabet $alphabet = null, bool $ownSpace = false)
     {
         $this->tokenScheme = new SequentialTokenScheme($length, $alphabet);
-        $this->store = new TokenStore($this->tokenScheme);
+        $this->store = new TokenStore($this->tokenScheme, ownSpace: $ownSpace);
     }
 
     /**
@@ -106,5 +114,17 @@ final readonly class SequentialTokenEncoder implements BulkIdentityEncoder, Stor
     public function decodeWithin(string $type, string $token): int|string|null
     {
         return $this->store->keyFor($token, $type);
+    }
+
+    #[Override]
+    public function decodeMany(array $tokens): array
+    {
+        return $this->store->keysFor($tokens);
+    }
+
+    #[Override]
+    public function decodeManyWithin(string $type, array $tokens): array
+    {
+        return $this->store->keysFor($tokens, $type);
     }
 }

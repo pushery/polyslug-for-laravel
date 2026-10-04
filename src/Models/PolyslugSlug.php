@@ -12,9 +12,11 @@ use Override;
 use Polyslug\Models\Concerns\Replaceable;
 
 /**
- * One slug for a sluggable model in one locale and uniqueness scope. At most one row
- * per (sluggable_type, locale, scope, case-insensitive slug) may be current and not
- * deleted; superseded slugs stay as history (is_current = false) so old URLs can 301.
+ * One slug for a sluggable model in one locale and uniqueness scope. Among the rows that
+ * enforce uniqueness (enforce_unique, which a model declared `unique: false` or `slugless`
+ * does not set), at most one per (sluggable_type, locale, scope, case-insensitive slug) may be
+ * current and not deleted; superseded slugs stay as history (is_current = false) so old URLs
+ * can 301.
  *
  * @property int $id
  * @property string $sluggable_type
@@ -24,6 +26,7 @@ use Polyslug\Models\Concerns\Replaceable;
  * @property string $slug
  * @property bool $is_current
  * @property bool $enforce_unique
+ * @property Carbon|null $retired_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
@@ -64,6 +67,7 @@ class PolyslugSlug extends Model
         return [
             'is_current' => 'boolean',
             'enforce_unique' => 'boolean',
+            'retired_at' => 'datetime',
         ];
     }
 }

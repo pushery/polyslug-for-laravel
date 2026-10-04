@@ -35,7 +35,7 @@ final readonly class RandomTokenScheme implements TokenScheme
      *
      * THIS IS WHAT MAKES A SHORT LENGTH A REAL OPTION RATHER THAN A TRAP. Two characters is
      * 1,296 tokens; a thousand records in, every draw is a coin flip, and at 1,296 the space
-     * is simply gone. Without this, that ends as a CouldNotIssueToken thrown from encode() —
+     * is gone. Without this, that ends as a CouldNotIssueToken thrown from encode() —
      * which runs while a URL is being RENDERED, so an application that chose a short length
      * gets a 500 on a GET, months later, on whichever record happened to be next.
      *

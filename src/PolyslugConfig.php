@@ -58,6 +58,20 @@ final readonly class PolyslugConfig
         //
         // `unicode: 'ascii'` (the default) transliterates before storing, so a preserved-case
         // slug is ASCII and every engine folds it identically.
+        // The separator sits inside the slug, and the slug sits in a path segment before its
+        // token. `_` is the delimiter between the two and `/` separates the slugs of a nested
+        // URL, so the read path splits a slug at either: a slug of two words would never be found
+        // at the address the package renders for it.
+        if (preg_match('/^[.~-]+$/D', $this->separator) !== 1) {
+            throw MisconfiguredPolyslug::separatorIsNotUrlSafe($this->separator);
+        }
+
+        // Each of these used to be compared against the one value that changes something, so a
+        // misspelled value fell back to the default without a word.
+        $this->oneOf('onDelete', $this->onDelete, ['keep', 'release']);
+        $this->oneOf('emptyFallback', $this->emptyFallback, ['id-only', 'throw']);
+        $this->oneOf('unicode', $this->unicode, ['ascii', 'native']);
+
         if ($this->preserveCase && $this->unicode === 'native') {
             throw MisconfiguredPolyslug::preserveCaseExcludesNativeUnicode();
         }
@@ -116,16 +130,6 @@ final readonly class PolyslugConfig
     }
 
     /**
-     * Whether this model's slug rows take part in the uniqueness index.
-     *
-     * Two different reasons land on the same answer, which is why they are resolved once
-     * here rather than re-derived at each of the three places that ask. `unique: false` is a
-     * consumer saying records may share a slug because the encoded id disambiguates them;
-     * `slugless` produces no slug at all, so every record would hold the same empty one and
-     * a uniqueness index over that would hand the second record the counter suffix `-2` — a
-     * name, in the URL of a model whose entire point is not to have one.
-     */
-    /**
      * The same configuration, except it will not take a name another record still holds.
      *
      * `reclaimActive` is a property of the MODEL, but taking a name is a property of the
@@ -165,6 +169,16 @@ final readonly class PolyslugConfig
         );
     }
 
+    /**
+     * Whether this model's slug rows take part in the uniqueness index.
+     *
+     * Two different reasons land on the same answer, which is why they are resolved once
+     * here rather than re-derived where the slug row is written. `unique: false` is a
+     * consumer saying records may share a slug because the encoded id disambiguates them;
+     * `slugless` produces no slug at all, so every record would hold the same empty one and
+     * a uniqueness index over that would hand the second record the counter suffix `-2` — a
+     * name, in the URL of a model whose entire point is not to have one.
+     */
     public function enforcesUniqueSlug(): bool
     {
         return $this->unique && ! $this->slugless;
@@ -192,5 +206,15 @@ final readonly class PolyslugConfig
             slugless: $attribute->slugless,
             preserveCase: $attribute->preserveCase,
         );
+    }
+
+    /**
+     * @param  list<string>  $allowed
+     */
+    private function oneOf(string $option, string $value, array $allowed): void
+    {
+        if (! in_array($value, $allowed, true)) {
+            throw MisconfiguredPolyslug::unknownOption($option, $value, $allowed);
+        }
     }
 }

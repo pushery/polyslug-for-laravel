@@ -3,11 +3,29 @@
     "name": "pushery/polyslug-for-laravel",
     "description": "Polymorphic, multilingual routable identity for Eloquent — leak-safe IDs, per-locale slugs, and hreflang out of the box.",
     "keywords": [
-        "laravel"
+        "laravel",
+        "eloquent",
+        "slug",
+        "sluggable",
+        "multilingual",
+        "hreflang",
+        "seo",
+        "canonical",
+        "sitemap",
+        "sqids",
+        "routing",
+        "redirect",
+        "locale"
     ],
     "license": "MIT",
     "type": "library",
     "homepage": "https://github.com/pushery/polyslug-for-laravel",
+    "authors": [
+        {
+            "name": "Pushery",
+            "homepage": "https://www.pushery.com"
+        }
+    ],
     "support": {
         "issues": "https://github.com/pushery/polyslug-for-laravel/issues",
         "source": "https://github.com/pushery/polyslug-for-laravel"
@@ -15,6 +33,7 @@
     "require": {
         "php": "^8.4",
         "ext-ctype": "*",
+        "ext-hash": "*",
         "ext-json": "*",
         "ext-mbstring": "*",
         "illuminate/collections": "^13.0",
@@ -32,7 +51,9 @@
         "symfony/http-kernel": "^7.0 || ^8.0"
     },
     "suggest": {
-        "laravel/head": "Lets a Polyslug model describe its own <head>: Head::polyslug($model) writes the canonical URL, the reciprocal hreflang set, the Open Graph locale set and the robots directive from the model's own slug data. Needs Laravel 13.17+, which is laravel/head's own floor - Polyslug itself needs only 13.0."
+        "laravel/head": "Lets a Polyslug model describe its own <head>: Head::polyslug($model) writes the canonical URL, the reciprocal hreflang set, the Open Graph locale set and the robots directive from the model's own slug data. Needs Laravel 13.17+, which is laravel/head's own floor - Polyslug itself needs only 13.0.",
+        "ext-bcmath": "Needed by Polyslug\\Encoders\\SqidsEncoder unless ext-gmp is loaded: Sqids computes with one of the two.",
+        "ext-gmp": "Needed by Polyslug\\Encoders\\SqidsEncoder unless ext-bcmath is loaded: Sqids computes with one of the two."
     },
     "autoload": {
         "psr-4": {

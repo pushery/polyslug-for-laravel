@@ -37,17 +37,17 @@ return new class extends Migration
             // (NULLs never collide in a UNIQUE index), SHA2-hashed to stay inside the index
             // key-length limit. LOWER(slug) mirrors the lower(slug) of the PG/SQLite indexes.
             DB::statement(
-                'ALTER TABLE polyslug_slugs ADD COLUMN polyslug_current_key CHAR(64) '
+                'ALTER TABLE '.$this->table('polyslug_slugs').' ADD COLUMN polyslug_current_key CHAR(64) '
                 .'GENERATED ALWAYS AS (CASE WHEN is_current = 1 AND deleted_at IS NULL '
                 .'THEN SHA2(CONCAT_WS(CHAR(30), sluggable_type, locale, scope, LOWER(slug)), 256) END) VIRTUAL'
             );
             DB::statement(
-                'ALTER TABLE polyslug_slugs ADD COLUMN polyslug_one_current_key CHAR(64) '
+                'ALTER TABLE '.$this->table('polyslug_slugs').' ADD COLUMN polyslug_one_current_key CHAR(64) '
                 .'GENERATED ALWAYS AS (CASE WHEN is_current = 1 AND deleted_at IS NULL '
                 .'THEN SHA2(CONCAT_WS(CHAR(30), sluggable_type, sluggable_id, locale, scope), 256) END) VIRTUAL'
             );
-            DB::statement('CREATE UNIQUE INDEX polyslug_slugs_current_unique ON polyslug_slugs (polyslug_current_key)');
-            DB::statement('CREATE UNIQUE INDEX polyslug_slugs_one_current ON polyslug_slugs (polyslug_one_current_key)');
+            DB::statement('CREATE UNIQUE INDEX polyslug_slugs_current_unique ON '.$this->table('polyslug_slugs').' (polyslug_current_key)');
+            DB::statement('CREATE UNIQUE INDEX polyslug_slugs_one_current ON '.$this->table('polyslug_slugs').' (polyslug_one_current_key)');
         } else {
             // PostgreSQL + SQLite (>= 3.9): a functional partial unique index. No generated
             // column — PostgreSQL 18 makes generated columns VIRTUAL and therefore
@@ -55,12 +55,12 @@ return new class extends Migration
             // The identical statement runs on both engines.
             DB::statement(
                 'CREATE UNIQUE INDEX polyslug_slugs_current_unique '
-                .'ON polyslug_slugs (sluggable_type, locale, scope, lower(slug)) '
+                .'ON '.$this->table('polyslug_slugs').' (sluggable_type, locale, scope, lower(slug)) '
                 .'WHERE is_current AND deleted_at IS NULL'
             );
             DB::statement(
                 'CREATE UNIQUE INDEX polyslug_slugs_one_current '
-                .'ON polyslug_slugs (sluggable_type, sluggable_id, locale, scope) '
+                .'ON '.$this->table('polyslug_slugs').' (sluggable_type, sluggable_id, locale, scope) '
                 .'WHERE is_current AND deleted_at IS NULL'
             );
         }
@@ -97,5 +97,15 @@ return new class extends Migration
         Schema::dropIfExists('polyslug_short_links');
         Schema::dropIfExists('polyslug_tokens');
         Schema::dropIfExists('polyslug_slugs');
+    }
+
+    /**
+     * A table as raw SQL has to name it: with the connection's prefix, quoted by its grammar.
+     * The schema and query builders apply the prefix themselves; a statement written by hand
+     * gets it only through here.
+     */
+    private function table(string $name): string
+    {
+        return Schema::getConnection()->getQueryGrammar()->wrapTable($name);
     }
 };

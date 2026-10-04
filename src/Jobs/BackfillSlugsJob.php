@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Polyslug\Jobs;
 
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Polyslug\Contracts\Sluggable;
 
 /**
@@ -51,10 +53,38 @@ final class BackfillSlugsJob implements ShouldQueue
             return;
         }
 
-        foreach ($model::query()->whereKey($this->keys)->get() as $row) {
+        foreach (self::withCurrentSlugs($model::query()->whereKey($this->keys))->get() as $row) {
             if ($row instanceof Sluggable && $row->currentSlug($this->locale) === null) {
                 $row->polyslugSeed($this->locale);
             }
         }
+    }
+
+    /**
+     * The query with each row's current slug rows eager-loaded, so currentSlug() answers from them
+     * rather than with a query of its own for every row: on a table where nothing is missing, that
+     * per-row query was the whole cost of a run. Only the current rows, which is all the question
+     * needs; a long history would otherwise come along with every chunk unread. The write path
+     * reads fresh either way.
+     *
+     * method_exists() rather than a contract method, for the reason the sitemap command gives: the
+     * relation lives on HasPolyslug, so a model implementing Sluggable by hand is read as before.
+     *
+     * @internal the backfill command reads its rows through it as well
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @return Builder<TModel>
+     */
+    public static function withCurrentSlugs(Builder $query): Builder
+    {
+        if (method_exists($query->getModel(), 'polyslugPreload')) {
+            $query->with(['slugs' => static function (Relation $slugs): void {
+                $slugs->getBaseQuery()->where('is_current', true);
+            }]);
+        }
+
+        return $query;
     }
 }

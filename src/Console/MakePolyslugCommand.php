@@ -4,60 +4,87 @@ declare(strict_types=1);
 
 namespace Polyslug\Console;
 
-use Illuminate\Console\Command;
-use Illuminate\Filesystem\Filesystem;
+use Illuminate\Console\GeneratorCommand;
 use Illuminate\Support\Str;
+use LogicException;
 
-final class MakePolyslugCommand extends Command
+final class MakePolyslugCommand extends GeneratorCommand
 {
     /** @var string */
-    protected $signature = 'make:polyslug {name : The model class name}';
+    protected $name = 'make:polyslug';
 
     /** @var string */
     protected $description = 'Scaffold a sluggable Eloquent model wired for Polyslug.';
 
-    public function handle(Filesystem $files): int
+    /** @var string */
+    protected $type = 'Model';
+
+    /**
+     * @phpstan-ignore method.childReturnType (the console casts what handle() returns to the exit code, and the false GeneratorCommand documents would exit 0)
+     */
+    public function handle(): int
     {
-        $name = $this->argument('name');
-
-        if (! is_string($name) || $name === '') {
-            $this->error('A model name is required.');
+        if ($this->getNameInput() === '') {
+            $this->components->error('A model name is required.');
 
             return self::FAILURE;
         }
 
-        $class = Str::studly(class_basename($name));
-
-        // basePath('app/…') through the Application contract, not the app_path()
-        // global helper: that helper ships only with laravel/framework's Foundation
-        // helpers, which this package does not require.
-        // The contract exposes basePath but not path(), so the `app/` segment is
-        // spelled out — which also makes the convention this scaffolder assumes
-        // visible rather than hidden behind a helper.
-        $path = $this->laravel->basePath('app/Models/'.$class.'.php');
-
-        if ($files->exists($path)) {
-            $this->error("Model [{$class}] already exists.");
-
-            return self::FAILURE;
-        }
-
-        $files->ensureDirectoryExists(dirname($path));
-        $files->put($path, $this->contents($class));
-
-        $this->info("Created [{$path}].");
-
-        return self::SUCCESS;
+        // GeneratorCommand answers a reserved name or an existing model with `false`, and the
+        // console casts what handle() returns to the exit code, so a refusal would exit 0.
+        return parent::handle() === false ? self::FAILURE : self::SUCCESS;
     }
 
-    private function contents(string $class): string
+    /**
+     * The class to scaffold, with every namespace segment studly-cased: `admin/landing-page`
+     * becomes `Admin\LandingPage`, written to `app/Models/Admin/LandingPage.php`.
+     *
+     * Empty when there is no class name to scaffold: no name, a name that is not a string (a
+     * programmatic call can pass 42), or a separator with nothing after it.
+     */
+    protected function getNameInput(): string
+    {
+        if (! is_string($this->argument('name'))) {
+            return '';
+        }
+
+        $segments = explode('\\', ltrim(str_replace('/', '\\', parent::getNameInput()), '\\'));
+
+        if (in_array('', $segments, true)) {
+            return '';
+        }
+
+        return implode('\\', array_map(Str::studly(...), $segments));
+    }
+
+    /**
+     * @param  string  $rootNamespace
+     */
+    protected function getDefaultNamespace($rootNamespace): string
+    {
+        return $rootNamespace.'\\Models';
+    }
+
+    /**
+     * There is no stub file to point at. The package ships PHP only, so the model is written by
+     * buildClass() below, which is the one method of GeneratorCommand that reads a stub.
+     */
+    protected function getStub(): never
+    {
+        throw new LogicException('make:polyslug writes its model in buildClass() and has no stub file.');
+    }
+
+    /**
+     * @param  string  $name  the qualified class, such as App\Models\Admin\LandingPage
+     */
+    protected function buildClass($name): string
     {
         return implode("\n", [
             '<?php',
             '',
             'declare(strict_types=1);',
             '',
-            'namespace App\\Models;',
+            'namespace '.$this->getNamespace($name).';',
             '',
             'use Illuminate\\Database\\Eloquent\\Model;',
             'use Polyslug\\Attributes\\Polyslug;',
@@ -65,7 +92,7 @@ final class MakePolyslugCommand extends Command
             'use Polyslug\\Contracts\\Sluggable;',
             '',
             "#[Polyslug(source: 'title')]",
-            "final class {$class} extends Model implements Sluggable",
+            'final class '.class_basename($name).' extends Model implements Sluggable',
             '{',
             '    use HasPolyslug;',
             '}',

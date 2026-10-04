@@ -43,7 +43,12 @@ final class BackfillSlugsCommand extends Command
             $tries = $this->positiveInt('polyslug.backfill.tries');
             $timeout = $this->positiveInt('polyslug.backfill.timeout');
 
-            $model::query()->chunkById($this->chunkSize(), function (Collection $rows) use ($model, $locale, $dispatcher, $connection, $queue, $tries, $timeout, &$dispatched): void {
+            // Keys only. The jobs read their rows themselves, so reading every column here would
+            // carry each row's text and JSON through memory just to hand its key on.
+            $keys = $model::query();
+            $keys->select($keys->getModel()->getQualifiedKeyName());
+
+            $keys->chunkById($this->chunkSize(), function (Collection $rows) use ($model, $locale, $dispatcher, $connection, $queue, $tries, $timeout, &$dispatched): void {
                 $dispatcher->dispatch(new BackfillSlugsJob(
                     $model,
                     array_values($rows->modelKeys()),
@@ -63,7 +68,7 @@ final class BackfillSlugsCommand extends Command
 
         $backfilled = 0;
 
-        foreach ($model::query()->lazyById() as $row) {
+        foreach (BackfillSlugsJob::withCurrentSlugs($model::query())->lazyById() as $row) {
             if ($row instanceof Sluggable && $row->currentSlug($locale) === null) {
                 $row->polyslugSeed($locale);
                 $backfilled++;

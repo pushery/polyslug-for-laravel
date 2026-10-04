@@ -7,6 +7,7 @@ namespace Polyslug\Encoders;
 use InvalidArgumentException;
 use Override;
 use Polyslug\Contracts\IdentityEncoder;
+use Polyslug\Support\TokenAlphabet;
 use Sqids\Sqids;
 
 /**
@@ -22,6 +23,12 @@ final readonly class SqidsEncoder implements IdentityEncoder
 
     public function __construct(?string $alphabet = null, int $minLength = 0)
     {
+        // The token lands in the same URL segment a stored token does, so a custom alphabet is
+        // held to the same characters. Sqids itself checks only its length and its repeats.
+        if ($alphabet !== null) {
+            new TokenAlphabet($alphabet);
+        }
+
         $this->sqids = $alphabet === null
             ? new Sqids(minLength: $minLength)
             : new Sqids($alphabet, $minLength);
@@ -42,7 +49,7 @@ final readonly class SqidsEncoder implements IdentityEncoder
             // range error names neither the key nor this encoder.
             //
             // Compared after stripping leading zeros, which is the one difference the cast is
-            // allowed to make: `007` is the same key as `7`, and an arm pins that.
+            // allowed to make: `007` is the same key as `7`.
             $magnitude = ltrim($id, '0');
 
             if (($magnitude === '' ? '0' : $magnitude) !== (string) (int) $id) {
