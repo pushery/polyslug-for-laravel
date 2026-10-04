@@ -8,13 +8,14 @@ use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Redirector;
 use Illuminate\Routing\Route;
 use Illuminate\Routing\UrlGenerator;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Events\SlugRedirected;
+use Polyslug\Support\ConfigChoice;
+use Polyslug\Support\SuccessorChain;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
@@ -44,12 +45,13 @@ final class EnsureCanonicalSlug
         // the action runs, so the decision still sees the request as it arrived; saying it is
         // deferred until the application has had its turn.
         $gone = $this->isGone($route);
-        $terminal = $gone ? null : $this->supersededRedirect($route, $locale);
-        $stale = $gone || $terminal instanceof Response
+        $terminal = $gone ? null : $this->supersededRedirect($request, $route, $locale);
+        $retired = ! $gone && ! $terminal instanceof Response && $this->isRetired($route, $locale);
+        $stale = $gone || $retired || $terminal instanceof Response
             ? false
             : $this->hasStaleSlug($route, $locale) || $this->hasTrailingSlash($request);
 
-        if (! $gone && ! $terminal instanceof Response && ! $stale) {
+        if (! $gone && ! $retired && ! $terminal instanceof Response && ! $stale) {
             return $next($request);
         }
 
@@ -63,11 +65,12 @@ final class EnsureCanonicalSlug
         // gate, so a bound model has already passed whatever gate exists.
         //
         // Ordering the middleware differently does not fix it either. Route::polyslug() wires
-        // [SubstituteBindings, polyslug.canonical] into the route and Laravel's priority sort
-        // does not lift an unprioritized Authorize in front of them, so even a consumer who
-        // correctly writes ->middleware('can:...') leaks; authorization inside the action has
-        // no ordering escape at all. Deferring the answer is the only fix that protects a
-        // consumer without asking anything of them.
+        // [SubstituteBindings, polyslug.canonical] into the route. Laravel's priority sort puts
+        // Authorize after SubstituteBindings, where $middlewarePriority lists it, and leaves
+        // polyslug.canonical, which is not on that list, where the route put it: between the
+        // two. So even a consumer who correctly writes ->middleware('can:...') leaks, and
+        // authorization inside the action has no ordering escape at all. Deferring the answer is
+        // the only fix that protects a consumer without asking anything of them.
         //
         // If the action throws — the common `abort_unless()` shape — this line propagates and
         // no redirect is ever built.
@@ -91,15 +94,16 @@ final class EnsureCanonicalSlug
             return $terminal;
         }
 
+        if ($retired) {
+            throw new HttpException($this->configuredStatus('polyslug.retired.status', 410));
+        }
+
         $url = $this->canonicalUrl($request, $route, $locale);
 
-        // NO LOOP GUARD HERE, and it was written and then removed rather than never considered.
-        // A redirect to the address just requested is a loop a browser gives up on, and the way
-        // to reach one would be a canonical path that itself ends in a slash. It cannot: Route
-        // normalizes its URI through `trim($uri, '/')`, so `pages/{page}/` and `/pages/{page}/`
-        // both store `pages/{page}` -- measured on both spellings. The guard was a branch no run
-        // could enter, which the coverage floor is right to object to and which reads to the
-        // next person like a case that happens.
+        // No loop guard. A redirect to the address just requested is a loop a browser gives up
+        // on, and the way to reach one would be a canonical path that itself ends in a slash. It
+        // cannot: the router trims a route's URI when it registers it (Router::prefix()), so
+        // `pages/{page}/` and `/pages/{page}/` both store `pages/{page}`.
         $status = $this->status();
         $this->recordRedirect($route, $locale, $url, $status);
 
@@ -128,10 +132,17 @@ final class EnsureCanonicalSlug
         return in_array($request->getMethod(), ['GET', 'HEAD'], true);
     }
 
+    /**
+     * Whether a bound model was requested under an address that is no longer its own.
+     *
+     * A parameter that names a field (`{page:uuid}`) is addressed by that column, not by its
+     * slug, so its value never equals the route key and is not stale for that reason.
+     */
     private function hasStaleSlug(Route $route, string $locale): bool
     {
         foreach ($route->parameters() as $name => $value) {
             if ($value instanceof Sluggable
+                && $route->bindingFieldFor($name) === null
                 && is_string($requested = $route->originalParameter($name))
                 && $requested !== $value->polyslugRouteKeyForLocale($locale)) {
                 return true;
@@ -150,11 +161,21 @@ final class EnsureCanonicalSlug
 
         foreach ($this->declaredParameters($route) as $name => $value) {
             $parameters[$name] = $value instanceof Sluggable
-                ? $value->polyslugRouteKeyForLocale($locale)
+                ? $this->urlParameter($route, $name, $value, $locale)
                 : $value;
         }
 
-        $url = Container::getInstance()->make(UrlGenerator::class)->toRoute($route, $parameters, true);
+        return $this->withRequestQuery($request, Container::getInstance()->make(UrlGenerator::class)->toRoute($route, $parameters, true));
+    }
+
+    /**
+     * The URL with the request's query string appended, as both redirects of this middleware send
+     * it. The query belongs to the request, not to the record: a campaign or a filter parameter
+     * means the same on the record's new address as on the old one. Symfony sorts the keys and
+     * re-encodes the values on the way.
+     */
+    private function withRequestQuery(Request $request, string $url): string
+    {
         $query = $request->getQueryString();
 
         return $query === null ? $url : $url.'?'.$query;
@@ -164,7 +185,7 @@ final class EnsureCanonicalSlug
     {
         $config = Container::getInstance()->make(ConfigRepository::class);
 
-        if ($config->get('polyslug.locale.source') === 'route') {
+        if (ConfigChoice::read('locale.source', ['app', 'route'], 'app') === 'route') {
             $param = $config->get('polyslug.locale.route_param', 'locale');
             $value = $route->parameter(is_string($param) ? $param : 'locale');
 
@@ -213,6 +234,31 @@ final class EnsureCanonicalSlug
     }
 
     /**
+     * Whether a bound model was requested under a slug it retired.
+     *
+     * A retired slug is one the record must not be reached through any more, so it answers with
+     * a status rather than a redirect, and it outranks a stale slug. A gone or superseded record
+     * outranks it: those answer for the whole record, which no longer lives here. Only a value
+     * that is not the current address is asked about, so a canonical request costs no query. A
+     * parameter that names a field is addressed by its column, which has no history.
+     */
+    private function isRetired(Route $route, string $locale): bool
+    {
+        foreach ($route->parameters() as $name => $value) {
+            if ($value instanceof Sluggable
+                && method_exists($value, 'polyslugIsRetiredAddress')
+                && $route->bindingFieldFor($name) === null
+                && is_string($requested = $route->originalParameter($name))
+                && $requested !== $value->polyslugRouteKeyForLocale($locale)
+                && $value->polyslugIsRetiredAddress($requested, $locale)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * THE SUCCESSOR GOES THROUGH THE GATE TOO, and that is not the same property 0.7.0 fixed.
      *
      * 0.7.0 reversed the middleware so a canonical redirect can no longer overtake the
@@ -232,41 +278,26 @@ final class EnsureCanonicalSlug
      * signature does not hint at it. Deferring the answer is the only fix that asks the
      * consumer for nothing.
      *
-     * An invisible successor makes THIS PARAMETER produce no redirect — the loop simply moves
+     * An invisible successor makes THIS PARAMETER produce no redirect — the loop moves
      * on, exactly as it does for a parameter that was never superseded. The application's own
      * response is then handed back untouched, and the self-heal check downstream still runs
      * against the model the request legitimately holds.
      */
-    private function supersededRedirect(Route $route, string $locale): ?Response
+    private function supersededRedirect(Request $request, Route $route, string $locale): ?Response
     {
         foreach ($route->parameters() as $name => $value) {
             if (! $value instanceof Sluggable) {
                 continue;
             }
 
-            $successor = $value->polyslugSupersededBy();
-
-            if (! $successor instanceof Sluggable) {
-                continue;
-            }
-
-            // Resolved rather than merely checked: the URL is then built from the row the gate
-            // returned, not from the instance the model handed over.
-            $visible = $successor->polyslugResolveSelf();
+            $visible = SuccessorChain::lastVisible($value);
 
             if (! $visible instanceof Sluggable) {
                 continue;
             }
 
-            // A successor that is this very record would redirect to the address just
-            // requested, and the browser would follow that forever. It is treated as no
-            // successor at all: the page is served, exactly as for a record nobody superseded.
-            if ($visible instanceof Model && $value instanceof Model && $visible->is($value)) {
-                continue;
-            }
-
             return Container::getInstance()->make(Redirector::class)->to(
-                $this->successorUrl($route, $name, $visible, $locale),
+                $this->withRequestQuery($request, $this->successorUrl($route, $name, $visible, $locale)),
                 $this->configuredStatus('polyslug.gone.redirect_status', 301),
             );
         }
@@ -280,15 +311,26 @@ final class EnsureCanonicalSlug
 
         foreach ($this->declaredParameters($route) as $name => $value) {
             if ($name === $supersededParam) {
-                $parameters[$name] = $successor->polyslugRouteKeyForLocale($locale);
+                $parameters[$name] = $this->urlParameter($route, $name, $successor, $locale);
             } elseif ($value instanceof Sluggable) {
-                $parameters[$name] = $value->polyslugRouteKeyForLocale($locale);
+                $parameters[$name] = $this->urlParameter($route, $name, $value, $locale);
             } else {
                 $parameters[$name] = $value;
             }
         }
 
         return Container::getInstance()->make(UrlGenerator::class)->toRoute($route, $parameters, true);
+    }
+
+    /**
+     * What a bound model contributes to a URL this middleware builds: its route key in the
+     * request's locale, or, on a parameter that names a field (`{page:uuid}`), the model itself.
+     * The URL generator renders a model through the parameter's field, which is the address
+     * the route binds by.
+     */
+    private function urlParameter(Route $route, int|string $name, Sluggable $model, string $locale): mixed
+    {
+        return $route->bindingFieldFor($name) === null ? $model->polyslugRouteKeyForLocale($locale) : $model;
     }
 
     /**
@@ -353,6 +395,7 @@ final class EnsureCanonicalSlug
 
         foreach ($route->parameters() as $name => $value) {
             if ($value instanceof Sluggable
+                && $route->bindingFieldFor($name) === null
                 && is_string($requested = $route->originalParameter($name))
                 && $requested !== $value->polyslugRouteKeyForLocale($locale)) {
                 Container::getInstance()->make(Dispatcher::class)

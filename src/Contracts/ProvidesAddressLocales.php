@@ -21,7 +21,7 @@ namespace Polyslug\Contracts;
  *     /de/u/lena    (de)
  *
  * `slugLocales()` reports one entry there and always will, so the second address appears in no
- * hreflang set and in no sitemap. Nothing goes red. The address is simply never announced, and
+ * hreflang set and in no sitemap. Nothing goes red. The address is never announced, and
  * that is the expensive direction: hreflang in a page head is read only after the page has been
  * fetched, so an address no sitemap names and no crawled page links may never be fetched.
  *

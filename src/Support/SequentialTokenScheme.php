@@ -74,6 +74,10 @@ final readonly class SequentialTokenScheme implements TokenScheme
      * so turning this on over a table full of random tokens starts counting past them
      * instead of colliding with them for the rest of the day. Where the bound is wrong, the
      * unique index says so and `$attempt` walks forward until it is right.
+     *
+     * The index can only refuse a token whose row still exists. Deleting the newest row lowers
+     * the bound to the row before it and leaves that row's token free to be drawn again, which
+     * is why neither store ever deletes a row it wrote.
      */
     #[Override]
     public function draw(int $attempt, Closure $issued): string

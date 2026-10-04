@@ -32,6 +32,7 @@ use Polyslug\Encoders\SequentialTokenEncoder;
 use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Generators\DefaultSlugGenerator;
 use Polyslug\Http\Middleware\EnsureCanonicalSlug;
+use Polyslug\Support\ConfigChoice;
 use Polyslug\Support\PolyslugHead;
 use Polyslug\Support\PolyslugOpenGraphLocales;
 use Polyslug\Support\RandomTokenScheme;
@@ -67,7 +68,9 @@ final class PolyslugServiceProvider extends ServiceProvider
     {
         $this->mergeConfigRecursivelyFrom(__DIR__.'/../config/polyslug.php', 'polyslug');
 
-        $this->app->singleton(IdentityEncoder::class, static function (Application $app): IdentityEncoder {
+        // Scoped like the stored-token encoders below, because it hands one of them out: a
+        // singleton here would keep the first request's or job's instance, memo and all.
+        $this->app->scoped(IdentityEncoder::class, static function (Application $app): IdentityEncoder {
             // The fallback matters as much as the config file: mergeConfigFrom covers a
             // consumer who never published the config, but a config PUBLISHED from an older
             // version has no 'encoder' key at all and lands here. Both paths must arrive at
@@ -85,22 +88,28 @@ final class PolyslugServiceProvider extends ServiceProvider
             return $instance;
         });
 
-        // SINGLETONS, unlike the Sqids binding below, and the difference is state rather
-        // than style: a stored-token encoder memoizes what it has read, so a rendered list
-        // costs one query instead of one per row. Resolved per call it would hand back an
-        // empty memo every time, and polyslugPreload() — which groups models by the object
-        // identity of their encoder — would fill a memo that is discarded before the first
-        // route key is built. That is what a model naming one of these explicitly through
+        // Shared, unlike the Sqids binding below, and the difference is state rather than
+        // style: a stored-token encoder memoizes what it has read, so a rendered list costs one
+        // query instead of one per row. Resolved per call it would hand back an empty memo
+        // every time, and polyslugPreload() — which groups models by the object identity of
+        // their encoder — would fill a memo that is discarded before the first route key is
+        // built. That is what a model naming one of these explicitly through
         // `#[Polyslug(encoder: …)]` used to get: the class was bound nowhere, so the
         // container built a fresh instance for every resolution, while the default path
-        // (through the IdentityEncoder singleton) kept exactly one.
-        $this->app->singleton(RandomTokenEncoder::class, static function (Application $app): RandomTokenEncoder {
+        // (through the IdentityEncoder binding) kept exactly one.
+        //
+        // Scoped rather than singletons, because the memo describes the database at the moment
+        // it was read, misses included. Laravel drops scoped instances after every request under
+        // Octane and after every job a queue worker runs. A singleton outlived both, so a worker
+        // kept answering from its first job's memo: a token that was not issued yet when that
+        // job looked stayed unknown in every job after it.
+        $this->app->scoped(RandomTokenEncoder::class, static function (Application $app): RandomTokenEncoder {
             $options = self::tokenOptions($app, 'polyslug.random_token');
 
             return new RandomTokenEncoder($options['length'] ?? RandomTokenEncoder::DEFAULT_LENGTH, $options['alphabet']);
         });
 
-        $this->app->singleton(SequentialTokenEncoder::class, static function (Application $app): SequentialTokenEncoder {
+        $this->app->scoped(SequentialTokenEncoder::class, static function (Application $app): SequentialTokenEncoder {
             $options = self::tokenOptions($app, 'polyslug.sequential_token');
 
             return new SequentialTokenEncoder($options['length'] ?? SequentialTokenEncoder::DEFAULT_LENGTH, $options['alphabet']);
@@ -112,7 +121,7 @@ final class PolyslugServiceProvider extends ServiceProvider
         // it wholesale with a scheme of their own.
         $this->app->singleton(TokenScheme::class, static function (Application $app): TokenScheme {
             $options = self::tokenOptions($app, 'polyslug.short_links');
-            $scheme = $app->make(ConfigRepository::class)->get('polyslug.short_links.scheme', 'random');
+            $scheme = ConfigChoice::read('short_links.scheme', ['random', 'sequential'], 'random');
 
             // The default length is the SCHEME's, not the section's, and that is not a detail.
             // One setting serves both schemes here, and the sensible starting width differs by
@@ -235,11 +244,8 @@ final class PolyslugServiceProvider extends ServiceProvider
      */
     private function registerHeadIntegration(): void
     {
-        // Written as a positive guard rather than an early return on purpose: the
-        // negative branch is UNREACHABLE here, because laravel/head is a dev dependency
-        // and therefore always installed in this suite. An early `return;` would be a
-        // permanently uncovered line, and the honest fix for a line no test can reach is
-        // to not write it — not to annotate it away.
+        // laravel/head is optional: without it nothing below runs, and PolyslugHead is never
+        // loaded.
         if (class_exists(HeadManager::class)) {
             HeadManager::macro('polyslug', function (Sluggable $model, ?string $locale = null): HeadManager {
                 /** @var HeadManager $this */
@@ -281,10 +287,13 @@ final class PolyslugServiceProvider extends ServiceProvider
             __DIR__.'/../config/polyslug.php' => $this->app->configPath('polyslug.php'),
         ], ['polyslug', 'polyslug-config']);
 
-        // publishesMigrations(), not publishes(): it rewrites the bundled
-        // 0001_01_01_000000 ordering prefix to the publish date, so a published
-        // migration sorts AFTER the host app's existing migrations instead of before
-        // all of them (where it would run before the tables it may reference exist).
+        // publishesMigrations(), not publishes(): when the application has
+        // `database.migrations.update_date_on_publish` on, as Laravel's default
+        // configuration ships it, the bundled 0001_01_01_000000 ordering prefix is
+        // rewritten to the publish date, so a published migration sorts after the
+        // application's existing migrations. With the option off the files keep their
+        // prefix. Either order is safe: the migrations create and change only the
+        // package's own polyslug_* tables.
         $this->publishesMigrations([
             __DIR__.'/../database/migrations' => $this->app->databasePath('migrations'),
         ], ['polyslug', 'polyslug-migrations']);
@@ -305,7 +314,7 @@ final class PolyslugServiceProvider extends ServiceProvider
      * arrives. The block the host published wins whole.
      *
      * The failure is silent in both directions that matter. Nothing errors, nothing logs —
-     * the new setting simply reads as `null` (or as `[]`), so a feature added in a minor
+     * the new setting reads as `null` (or as `[]`), so a feature added in a minor
      * release is off for exactly the hosts that had customized that area, and a corrected
      * security default never takes effect. Measured on a real upgrade: a routing flag added
      * one minor after a host published its config stayed `null` for eleven releases.

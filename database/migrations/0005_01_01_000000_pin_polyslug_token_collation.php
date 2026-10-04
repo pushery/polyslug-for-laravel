@@ -55,6 +55,7 @@ return new class extends Migration
         }
 
         foreach (self::TOKEN_COLUMNS as [$table, $column]) {
+            $table = Schema::getConnection()->getTablePrefix().$table;
             $current = $this->columnDefinition($table, $column);
 
             // Already byte-exact -> nothing to rebuild. An ALTER on a large indexed column
@@ -75,6 +76,7 @@ return new class extends Migration
         }
 
         foreach (self::TOKEN_COLUMNS as [$table, $column]) {
+            $table = Schema::getConnection()->getTablePrefix().$table;
             $current = $this->columnDefinition($table, $column);
             $inherited = $this->tableCollation($table);
 
@@ -145,8 +147,8 @@ return new class extends Migration
     private function modify(string $table, string $column, array $current, string $collation): void
     {
         // Identifiers cannot be bound, and none of these is user input: both names are class
-        // constants, and the type and charset came from information_schema on this very
-        // connection.
+        // constants, the table carrying the connection's prefix, and the type and charset came
+        // from information_schema on this very connection.
         DB::statement(sprintf(
             'ALTER TABLE `%s` MODIFY `%s` %s CHARACTER SET %s COLLATE %s %s',
             $table,

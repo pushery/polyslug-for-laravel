@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polyslug\Encoders;
 
 use Override;
+use Polyslug\Contracts\BulkIdentityDecoder;
 use Polyslug\Contracts\BulkIdentityEncoder;
 use Polyslug\Contracts\StoresTokensPerRecord;
 use Polyslug\Contracts\TokenScheme;
@@ -39,7 +40,7 @@ use Polyslug\Support\TokenStore;
  * For the opposite trade — the shortest possible URL, at the cost of a completely
  * predictable one — see {@see SequentialTokenEncoder}.
  */
-final readonly class RandomTokenEncoder implements BulkIdentityEncoder, StoresTokensPerRecord
+final readonly class RandomTokenEncoder implements BulkIdentityDecoder, BulkIdentityEncoder, StoresTokensPerRecord
 {
     /** @see RandomTokenScheme::DEFAULT_LENGTH */
     public const int DEFAULT_LENGTH = RandomTokenScheme::DEFAULT_LENGTH;
@@ -113,5 +114,17 @@ final readonly class RandomTokenEncoder implements BulkIdentityEncoder, StoresTo
     public function decodeWithin(string $type, string $token): int|string|null
     {
         return $this->store->keyFor($token, $type);
+    }
+
+    #[Override]
+    public function decodeMany(array $tokens): array
+    {
+        return $this->store->keysFor($tokens);
+    }
+
+    #[Override]
+    public function decodeManyWithin(string $type, array $tokens): array
+    {
+        return $this->store->keysFor($tokens, $type);
     }
 }

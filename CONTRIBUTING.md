@@ -21,8 +21,8 @@ version and a minimal reproduction, and never paste secrets or credentials.
 
 This repository is the published package: `src`, `config`, `database`, `resources` and
 the release metadata. Development happens in a private repository, and the test suite,
-the workbench application and the tooling configuration live there — so there is no
-`composer test` to run here, and `vendor/bin/pest` has nothing to collect.
+the demo application it runs against and the tooling configuration live there — so there
+is no `composer test` to run here, and `vendor/bin/pest` has nothing to collect.
 
 That is deliberate rather than an oversight, and it does not slow a pull request down:
 every branch is merged into the private repository first, where the full bar below runs

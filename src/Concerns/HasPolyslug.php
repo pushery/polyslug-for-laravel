@@ -4,19 +4,26 @@ declare(strict_types=1);
 
 namespace Polyslug\Concerns;
 
+use Closure;
 use DateTimeInterface;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Database\ConcurrencyErrorDetector;
+use Illuminate\Contracts\Database\Eloquent\Builder as BuilderContract;
 use Illuminate\Contracts\Events\Dispatcher;
+use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Database\Schema\Builder as SchemaBuilder;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use Polyslug\Contracts\BulkIdentityDecoder;
 use Polyslug\Contracts\BulkIdentityEncoder;
 use Polyslug\Contracts\IdentityEncoder;
 use Polyslug\Contracts\Sluggable;
@@ -36,10 +43,16 @@ use Polyslug\Polyslug;
 use Polyslug\PolyslugConfig;
 use Polyslug\PolyslugConfigResolver;
 use Polyslug\Relations\StringKeyedMorphMany;
+use Polyslug\Support\ConfigChoice;
 use Polyslug\Support\DeletionState;
+use Polyslug\Support\LocaleColumn;
 use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
 use Polyslug\Support\TokenAlphabet;
+use Stringable;
+use Throwable;
+
+use function Illuminate\Support\enum_value;
 
 /**
  * Gives an Eloquent model polymorphic, encoder-backed slugs. Declare the source with
@@ -58,6 +71,12 @@ trait HasPolyslug
      * 1,296x the one that was full.
      */
     private const int POLYSLUG_SHORT_LINK_ATTEMPTS = 8;
+
+    /**
+     * Whether the resolution in progress admits soft-deleted records: set for the length of a
+     * binding on a route declared with `->withTrashed()`.
+     */
+    private bool $polyslugIncludesTrashed = false;
 
     protected static function bootHasPolyslug(): void
     {
@@ -85,7 +104,7 @@ trait HasPolyslug
         //
         // Built here rather than by overriding `newMorphMany()`, because that hook is shared:
         // overriding it would silently change every OTHER morphMany on a consumer's model too.
-        $instance = $this->newRelatedInstance(PolyslugSlug::model());
+        $instance = $this->polyslugSlugModel();
 
         // The morph column names are written out rather than derived through `getMorphs()`:
         // this package ships the migration that creates them, so they are fixed, and the
@@ -97,6 +116,18 @@ trait HasPolyslug
             $instance->qualifyColumn('sluggable_id'),
             $this->getKeyName(),
         );
+    }
+
+    /**
+     * A slug model on the connection the `slugs()` relation reads from.
+     *
+     * Every write, rival check and slug lookup starts here, so a record on a connection of its own
+     * writes its slugs where it reads them. The connection is the slug model's own where it names
+     * one and the record's otherwise, the rule Eloquent applies to every relation.
+     */
+    private function polyslugSlugModel(): PolyslugSlug
+    {
+        return $this->newRelatedInstance(PolyslugSlug::model());
     }
 
     /**
@@ -251,7 +282,7 @@ trait HasPolyslug
      */
     public function shortLink(?string $locale = null): string
     {
-        $locale ??= $this->polyslugLocale();
+        $locale = LocaleColumn::storable($locale ?? $this->polyslugLocale());
 
         $target = [
             'sluggable_type' => $this->getMorphClass(),
@@ -286,7 +317,11 @@ trait HasPolyslug
             // Which one it was is not knowable portably here, and looping answers both.
         }
 
-        throw new CouldNotIssueToken($this->polyslugKeyString(), self::POLYSLUG_SHORT_LINK_ATTEMPTS);
+        throw new CouldNotIssueToken(
+            $this->polyslugKeyString(),
+            self::POLYSLUG_SHORT_LINK_ATTEMPTS,
+            table: PolyslugShortLink::model()::query()->getModel()->getTable(),
+        );
     }
 
     private function polyslugSlugForRouteKey(string $locale): ?string
@@ -299,7 +334,7 @@ trait HasPolyslug
 
         // The requested locale has no slug: fall back to the default locale's slug,
         // or emit a slug-less (id-only) key — per config polyslug.locale.missing.
-        if (Container::getInstance()->make(ConfigRepository::class)->get('polyslug.locale.missing', 'fallback') === 'fallback') {
+        if (ConfigChoice::read('locale.missing', ['fallback', 'id-only'], 'fallback') === 'fallback') {
             return $this->currentSlug($this->polyslugDefaultLocale());
         }
 
@@ -343,7 +378,11 @@ trait HasPolyslug
         // this locale there is nothing a save could change. Named rather than left to the
         // wasChanged() test below, which reads an EMPTY column list as "did anything change
         // at all" and would therefore re-run the whole write path on every unrelated update.
-        if ($current !== null && ($config->slugless || $config->immutable || ! $this->wasChanged($config->source))) {
+        //
+        // A row whose stored scope is no longer the record's is written again even when the
+        // source stayed: the record moved, to another tenant, owner or parent, and its slug has
+        // to compete, collide and resolve in the scope it now belongs to.
+        if ($current !== null && ($config->slugless || $config->immutable || (! $this->wasChanged($config->source) && $current->scope === $this->polyslugScope($config)))) {
             return;
         }
 
@@ -435,6 +474,65 @@ trait HasPolyslug
     }
 
     /**
+     * Retire a former slug: a request for it no longer redirects to this record.
+     *
+     * A former slug redirects to the current address, which keeps old links alive after a
+     * rename. A rename that must not keep pointing at the record, such as one forced by a
+     * trademark complaint, retires the old slug instead: the canonical middleware then answers
+     * `polyslug.retired.status` (410 by default) once the application has answered, and every
+     * other former slug keeps redirecting. Clearing `retired_at` on the row reverses it.
+     *
+     * Only a former slug can be retired. The current one is the record's address, and retiring
+     * it would leave the record answering at an address that refuses it, so that throws: rename
+     * first. Returns how many rows were retired, which is 0 for a slug this record never held
+     * or one already retired.
+     */
+    public function retireSlug(string $slug, ?string $locale = null): int
+    {
+        $locale ??= $this->polyslugLocale();
+
+        if (Str::lower($this->currentSlug($locale) ?? '') === Str::lower($slug)) {
+            throw new InvalidArgumentException(sprintf(
+                'The slug [%s] is the current address of this %s and cannot be retired; rename the record first.',
+                $slug,
+                static::class,
+            ));
+        }
+
+        return $this->slugs()
+            ->where('locale', $locale)
+            ->where('is_current', false)
+            ->whereNull('retired_at')
+            ->whereRaw('lower(slug) = ?', [Str::lower($slug)])
+            ->update(['retired_at' => Carbon::now()]);
+    }
+
+    /**
+     * Whether a route value names a slug of this record that was retired.
+     *
+     * Asked by the canonical middleware about a value that is not the current address, so a
+     * request for the current one costs nothing. The slug is read out of the value the way the
+     * model's route binding reads it: the leaf of a slug-only path, or the slug part in front of
+     * the token. A slugless model carries no slug, so nothing of it is ever retired.
+     */
+    public function polyslugIsRetiredAddress(string $routeValue, ?string $locale = null): bool
+    {
+        $config = $this->polyslugConfig();
+
+        if ($config->slugless) {
+            return false;
+        }
+
+        [$slug] = $config->idLess ? [$routeValue] : Polyslug::split($routeValue);
+
+        return $this->slugs()
+            ->where('locale', $locale ?? $this->polyslugLocale())
+            ->whereNotNull('retired_at')
+            ->whereRaw('lower(slug) = ?', [Str::lower(Str::afterLast($slug, '/'))])
+            ->exists();
+    }
+
+    /**
      * Build an absolute URL for each locale that has a current slug.
      *
      * @param  callable(string $locale, string $routeKey): string  $urlUsing
@@ -520,8 +618,11 @@ trait HasPolyslug
      */
     private function writeSlug(string $locale, string $source, PolyslugConfig $config, PolyslugSlug|false|null $known = false): void
     {
+        LocaleColumn::storable($locale);
+
         $scope = $this->polyslugScope($config);
         $attempts = $this->polyslugMaxWriteAttempts();
+        $slugModel = $this->polyslugSlugModel();
 
         for ($attempt = 1; $attempt <= $attempts; $attempt++) {
             // fresh, and this is the attempt that makes it non-negotiable: the loop re-asks
@@ -546,11 +647,15 @@ trait HasPolyslug
                     // answer it: the seam is the model's, and a generator receives a request,
                     // not a record.
                     reserved: $this->polyslugReservedWords(ReservedWords::inherited($config)),
+                    connection: $slugModel->getConnectionName(),
+                    identity: $config->idLess ? fn (): string => $this->polyslugEncodedKey() : null,
                 ),
                 $config,
             );
 
-            if ($current !== null && $current->slug === $desired) {
+            // The same text in another scope is a different row: a record that moved keeps its
+            // slug but has to hold it in the scope it now belongs to.
+            if ($current !== null && $current->slug === $desired && $current->scope === $scope) {
                 return;
             }
 
@@ -564,7 +669,7 @@ trait HasPolyslug
             // transaction, leaving the original current slug untouched.
             $displaced = [];
 
-            $inserted = DB::transaction(function () use ($current, $locale, $scope, $desired, $config, &$displaced): int {
+            $inserted = $this->polyslugWriteTransaction($slugModel->getConnection(), function () use ($slugModel, $current, $locale, $scope, $desired, $config, &$displaced): int {
                 // The takeover belongs INSIDE this transaction, next to the insert it makes room
                 // for. Retiring the holder first and inserting afterwards would leave the name
                 // owned by nobody if the insert then lost a race.
@@ -574,7 +679,7 @@ trait HasPolyslug
 
                 $current?->update(['is_current' => false]);
 
-                $inserted = PolyslugSlug::model()::query()->insertOrIgnore([
+                $inserted = $slugModel->newQuery()->insertOrIgnore([
                     'sluggable_type' => $this->getMorphClass(),
                     'sluggable_id' => $this->polyslugKeyString(),
                     'locale' => $locale,
@@ -615,12 +720,20 @@ trait HasPolyslug
                 return $inserted;
             });
 
+            // The engine rolled this attempt back because another writer held what it needed. That
+            // is a lost race like the zero above, and the next attempt reads the current row afresh.
+            if ($inserted === null) {
+                continue;
+            }
+
             if ($inserted > 0) {
                 $dispatcher = Container::getInstance()->make(Dispatcher::class);
 
-                // Announced only after the transaction committed, and only for the attempt that
-                // actually landed: a listener that reacts by re-syncing the displaced record must
-                // not run against a handover that was rolled back.
+                // Announced only after this write's transaction committed, and only for the attempt
+                // that actually landed: a listener that reacts by re-syncing the displaced record
+                // must not run against a handover that was rolled back. Both events dispatch
+                // after commit, so inside an enclosing transaction they wait for its commit and
+                // are dropped with its rollback.
                 foreach ($displaced as $row) {
                     $dispatcher->dispatch(new SlugReclaimed(
                         $this,
@@ -638,6 +751,38 @@ trait HasPolyslug
         }
 
         throw new CouldNotWriteSlug($this->getMorphClass(), $source);
+    }
+
+    /**
+     * One attempt's transaction, or null when the engine rolled it back because another writer
+     * held what it needed: a deadlock, a lock wait that ran out, a serialization failure.
+     *
+     * Two records taking each other's names at the same moment lock the same unique-index entries
+     * in opposite order, and InnoDB answers by rolling one of them back. Measured on MySQL 8.4 with
+     * two processes swapping names under reclaimActive: 44 of 1,000 rounds on each side. Only the
+     * attempt is lost, so the caller tries again, the way it does when its insert loses a race.
+     *
+     * Inside an enclosing transaction the engine has rolled back that one as well, and Laravel
+     * reports it as a DeadlockException. That is not retried here: only the code that opened the
+     * enclosing transaction can run it again.
+     *
+     * @param  Closure(): int  $write
+     */
+    private function polyslugWriteTransaction(ConnectionInterface $connection, Closure $write): ?int
+    {
+        try {
+            return $connection->transaction($write);
+        } catch (Throwable $e) {
+            // Laravel's own reading of the error, the one it retries a transaction by. The database
+            // service provider binds it wherever Eloquent runs at all.
+            $detector = Container::getInstance()->make(ConcurrencyErrorDetector::class);
+
+            if ($e instanceof DeadlockException || ! $detector->causedByConcurrencyError($e)) {
+                throw $e;
+            }
+
+            return null;
+        }
     }
 
     /**
@@ -676,7 +821,7 @@ trait HasPolyslug
      */
     private function polyslugRivalHolders(string $slug, string $locale, string $scope): Builder
     {
-        return PolyslugSlug::model()::query()
+        return $this->polyslugSlugModel()->newQuery()
             ->where('sluggable_type', $this->getMorphClass())
             ->where('locale', $locale)
             ->where('scope', $scope)
@@ -700,6 +845,10 @@ trait HasPolyslug
 
     public function resolveRouteBinding(mixed $value, mixed $field = null): ?static
     {
+        if (is_string($field) && $field !== '') {
+            return $this->polyslugResolveByField($value, $field);
+        }
+
         $routeValue = is_scalar($value) ? (string) $value : '';
 
         if ($this->polyslugConfig()->slugless) {
@@ -720,6 +869,141 @@ trait HasPolyslug
         }
 
         return $this->polyslugResolveByKey($id);
+    }
+
+    /**
+     * Resolve many route values in a fixed number of queries.
+     *
+     * Each value is read the way a route binding reads it, `slug_TOKEN` or the bare token, and
+     * the bare token is accepted for every model: it is the public identifier an API passes
+     * around. All tokens are decoded in one query when the encoder can batch
+     * (BulkIdentityDecoder), and the records are read in one query through the resolution gate.
+     * A value that resolves to nothing is absent from the result. A slug-only model has no token
+     * to batch on, and resolves its values one at a time.
+     *
+     * @param  iterable<mixed>  $values
+     * @return array<array-key, static> the record of each value, keyed by the value
+     */
+    public static function polyslugResolveMany(iterable $values): array
+    {
+        $model = static::query()->getModel();
+        $wanted = [];
+
+        foreach ($values as $value) {
+            if (is_scalar($value) && (string) $value !== '') {
+                $wanted[] = (string) $value;
+            }
+        }
+
+        $wanted = array_values(array_unique($wanted));
+
+        if ($model->polyslugConfig()->idLess) {
+            $resolved = [];
+
+            foreach ($wanted as $value) {
+                $record = $model->resolveRouteBinding($value);
+
+                if ($record !== null) {
+                    $resolved[$value] = $record;
+                }
+            }
+
+            return $resolved;
+        }
+
+        // The tokens each value may carry, in the order a route binding tries them: a slugless
+        // model reads the whole value first and its older `slug_TOKEN` form second; every other
+        // model reads the part after the delimiter, or the whole value when there is none.
+        $slugless = $model->polyslugConfig()->slugless;
+        $candidates = [];
+
+        foreach ($wanted as $value) {
+            [, $tail] = Polyslug::split($value);
+            $tail = $tail === null || $tail === '' ? null : $tail;
+
+            $candidates[$value] = $slugless ? array_values(array_filter([$value, $tail])) : [$tail ?? $value];
+        }
+
+        $keys = $model->polyslugDecodeMany(array_values(array_unique(array_merge(...array_values($candidates)))));
+        $records = [];
+
+        foreach ($model->polyslugResolveQuery($model->polyslugBindingQuery())->whereKey(array_values($keys))->get() as $record) {
+            // The gate is free to answer with a query for another model, as polyslugResolveByKey()
+            // says; such a row is not this model's record.
+            if ($record instanceof static) {
+                $records[$record->polyslugKeyString()] = $record;
+            }
+        }
+
+        $resolved = [];
+
+        foreach ($candidates as $value => $tokens) {
+            foreach ($tokens as $token) {
+                $key = $keys[$token] ?? null;
+
+                if ($key !== null && isset($records[(string) $key])) {
+                    $resolved[$value] = $records[(string) $key];
+
+                    break;
+                }
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * The keys of many tokens of this model, decoded together where the encoder can.
+     *
+     * Scoped to this model's type where the encoder files tokens under one, as polyslugDecode()
+     * is. Whatever the batch leaves unanswered goes the single way, which covers an encoder that
+     * cannot batch and a token only a legacy decoder knows; a miss of a store-backed encoder is
+     * remembered by the store, so that costs no second query.
+     *
+     * @param  list<string>  $tokens
+     * @return array<array-key, int|string>
+     */
+    private function polyslugDecodeMany(array $tokens): array
+    {
+        $encoder = $this->polyslugEncoder();
+        $keys = [];
+
+        if ($encoder instanceof BulkIdentityDecoder && $encoder instanceof StoresTokensPerRecord) {
+            $keys = $encoder->decodeManyWithin($this->getMorphClass(), $tokens);
+        } elseif ($encoder instanceof BulkIdentityDecoder) {
+            $keys = $encoder->decodeMany($tokens);
+        }
+
+        foreach ($tokens as $token) {
+            if (! array_key_exists($token, $keys)) {
+                $key = $this->polyslugDecode($token);
+
+                if ($key !== null) {
+                    $keys[$token] = $key;
+                }
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * Resolve a route value on a route that admits soft-deleted records: `->withTrashed()`.
+     *
+     * Laravel binds such a route through this method rather than resolveRouteBinding(), and its
+     * own version compares the whole value with the key column, so every record answered 404,
+     * deleted or not. The value is resolved the way resolveRouteBinding() resolves it, the gate
+     * included, with deleted records admitted.
+     */
+    public function resolveSoftDeletableRouteBinding(mixed $value, mixed $field = null): ?static
+    {
+        $this->polyslugIncludesTrashed = true;
+
+        try {
+            return $this->resolveRouteBinding($value, $field);
+        } finally {
+            $this->polyslugIncludesTrashed = false;
+        }
     }
 
     /**
@@ -762,12 +1046,64 @@ trait HasPolyslug
      */
     public function polyslugResolveByKey(mixed $key): ?static
     {
-        $resolved = $this->polyslugResolveQuery($this->newQuery())->whereKey($key)->first();
+        $resolved = $this->polyslugResolveQuery($this->polyslugBindingQuery())->whereKey($key)->first();
 
         // The gate is an override point, and an override is free to return a query for a
         // different model. Handing that row back would put a foreign record behind this
         // model's route, with this model's type on it, so it resolves to nothing instead.
         return $resolved instanceof static ? $resolved : null;
+    }
+
+    /**
+     * Resolve a binding that names a column, `{page:uuid}`: the value is compared with that
+     * column the way Laravel compares it, behind the resolution gate.
+     *
+     * Laravel builds the URL of such a route from the same column, so decoding the value as a
+     * slug and a token instead answered 404 at every address the route generated for itself.
+     * The gate comes first and the column second, in the order polyslugResolveByKey() uses,
+     * because a gate may answer with a query of its own and must not drop the constraint.
+     * resolveRouteBindingQuery() is called rather than written out, so an override of it is
+     * honored and the check HasUuids and HasUlids put there still refuses a malformed
+     * identifier before it reaches the database.
+     */
+    private function polyslugResolveByField(mixed $value, string $field): ?static
+    {
+        $gated = $this->polyslugResolveQuery($this->polyslugBindingQuery());
+        $resolved = self::polyslugConstrainToField($this, $gated, $value, $field)->first();
+
+        return $resolved instanceof static ? $resolved : null;
+    }
+
+    /**
+     * Apply a binding field to a query through the model's own resolveRouteBindingQuery().
+     *
+     * The model is taken as Model because that is the signature that accepts a builder. The
+     * override in HasUuids and HasUlids narrows only its docblock and passes the builder on.
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     */
+    private static function polyslugConstrainToField(Model $model, Builder $query, mixed $value, string $field): BuilderContract
+    {
+        return $model->resolveRouteBindingQuery($query, $value, $field);
+    }
+
+    /**
+     * The query a resolution starts from. Soft-deleted rows are in it for the length of a
+     * binding on a route declared with `->withTrashed()`.
+     *
+     * @return Builder<static>
+     */
+    private function polyslugBindingQuery(): Builder
+    {
+        $query = $this->newQuery();
+
+        if ($this->polyslugIncludesTrashed) {
+            $query->withoutGlobalScope(SoftDeletingScope::class);
+        }
+
+        return $query;
     }
 
     /**
@@ -793,6 +1129,8 @@ trait HasPolyslug
      * `/@bob/toolkit` — is an ARGUMENT of the resolution, not environment state, so it
      * reaches neither this query nor the gate. Both rows may legally hold the slug, because
      * the unique index is scope-bound too; the lookup then returns whichever sorts first.
+     * A nested path is the exception, because its ancestor part names the parent:
+     * polyslugPickByPath() reads it.
      *
      * Override polyslugResolutionScope() to hand the scope over. With
      * `polyslug.resolution.require_scope` enabled, a scope-bound model whose caller names
@@ -811,7 +1149,7 @@ trait HasPolyslug
             return null;
         }
 
-        $query = PolyslugSlug::model()::query()
+        $query = $this->polyslugSlugModel()->newQuery()
             ->where('sluggable_type', $this->getMorphClass())
             ->where('locale', $this->polyslugLocale())
             ->whereRaw('lower(slug) = ?', [Str::lower($slug)]);
@@ -823,21 +1161,73 @@ trait HasPolyslug
             ));
         }
 
+        // A record that held the slug more than once has a row for each time, so each key is
+        // resolved once, in the order of its newest row.
         $ids = $query
             ->orderByDesc('is_current')
             ->orderByDesc('id')
             ->pluck('sluggable_id')
+            ->unique()
             ->all();
+
+        $candidates = [];
 
         foreach ($ids as $id) {
             $model = $this->polyslugResolveByKey($id);
 
-            if ($model !== null) {
+            if ($model === null) {
+                continue;
+            }
+
+            if (! str_contains($value, '/')) {
                 return $model;
+            }
+
+            $candidates[] = $model;
+        }
+
+        return $this->polyslugPickByPath($candidates, $value);
+    }
+
+    /**
+     * Which of the records holding a leaf slug a nested slug-only path addresses.
+     *
+     * `scope: 'parent_id'` lets two parents each have a child called `phones`, and the leaf
+     * alone cannot tell them apart: the newest holder used to win, so the canonical URL of the
+     * other one answered with a permanent redirect to it. The rest of the path decides now.
+     * First the record whose current path is the one requested; then, for an old path that an
+     * ancestor's rename or move left behind, the record whose parent the ancestor part still
+     * resolves to, through the parent's own resolution and its earlier slugs. Only when
+     * neither tells them apart does the newest holder win, as before. A single holder is
+     * returned without looking at the path, so the usual case costs nothing extra.
+     *
+     * @param  list<static>  $candidates
+     */
+    private function polyslugPickByPath(array $candidates, string $path): ?static
+    {
+        if (count($candidates) < 2) {
+            return $candidates[0] ?? null;
+        }
+
+        $wanted = Str::lower(trim($path, '/'));
+
+        foreach ($candidates as $candidate) {
+            if (Str::lower($candidate->polyslugPath()) === $wanted) {
+                return $candidate;
             }
         }
 
-        return null;
+        $ancestors = Str::beforeLast($wanted, '/');
+
+        foreach ($candidates as $candidate) {
+            $parent = $candidate->polyslugParent();
+
+            if ($parent instanceof Model && $parent->resolveRouteBinding($ancestors)?->is($parent) === true) {
+                return $candidate;
+            }
+        }
+
+        return $candidates[0];
     }
 
     /**
@@ -1121,13 +1511,7 @@ trait HasPolyslug
 
         // Per-model Sqids options give this model its own token space.
         if ($config->encoderOptions !== [] && $instance instanceof SqidsEncoder) {
-            $alphabet = $config->encoderOptions['alphabet'] ?? null;
-            $minLength = $config->encoderOptions['min_length'] ?? null;
-
-            return new SqidsEncoder(
-                is_string($alphabet) ? $alphabet : null,
-                is_int($minLength) ? $minLength : 0,
-            );
+            return $this->polyslugSqidsEncoder($config->encoderOptions);
         }
 
         // Per-model token settings, so one model can have short URLs without every model
@@ -1141,21 +1525,57 @@ trait HasPolyslug
     }
 
     /**
+     * The Sqids encoder for a given set of per-model options, built once per request or job.
+     *
+     * A Sqid is computed from the key and holds nothing, so sharing one is not about state, as
+     * it is for the stored-token encoders below. It is about cost: building one shuffles the
+     * alphabet and compiles the blocklist, and this runs for every route key and for every
+     * locale of an hreflang set.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    private function polyslugSqidsEncoder(array $options): SqidsEncoder
+    {
+        $alphabet = $options['alphabet'] ?? null;
+        $minLength = $options['min_length'] ?? null;
+        $alphabet = is_string($alphabet) ? $alphabet : null;
+        $minLength = is_int($minLength) ? $minLength : 0;
+
+        $container = Container::getInstance();
+        $key = SqidsEncoder::class.':'.($alphabet === null ? '-' : 'a='.$alphabet).':'.$minLength;
+
+        if (! $container->bound($key)) {
+            $container->scoped($key, static fn (): SqidsEncoder => new SqidsEncoder($alphabet, $minLength));
+        }
+
+        // The key is written nowhere else and only ever with this type.
+        /** @var SqidsEncoder $encoder */
+        $encoder = $container->make($key);
+
+        return $encoder;
+    }
+
+    /**
      * The shared stored-token encoder for a given set of per-model options.
      *
      * Shared rather than constructed per call, and the reason is the same one that makes the
-     * container bindings singletons: these encoders memoize what they have read, so a fresh
+     * container bindings shared: these encoders memoize what they have read, so a fresh
      * instance per call means one query per rendered row and a polyslugPreload() that fills a
-     * memo nobody reads. The Sqids branch above can build freely because a Sqid is computed
-     * from the key and holds nothing.
+     * memo nobody reads.
      *
-     * Kept in the CONTAINER rather than in a static property on the trait, because a static
-     * would outlive the request under a resident runtime (Octane) and grow a token memo that
-     * nothing ever clears. The container is flushed between requests; a static is not.
+     * Kept in the container as a scoped entry rather than in a static property on the trait.
+     * Laravel drops scoped entries after every request under Octane and after every job a
+     * queue worker runs, so the memo never describes an older database than the request or
+     * job that reads it. A static would survive both and grow a memo nothing ever clears.
      *
-     * An option this encoder does not understand leaves it alone: the container-bound
-     * instance is already configured from the application's own settings, so "no per-model
-     * override" and "an override that says nothing" must land on the same object.
+     * An override that changes nothing leaves it alone: the container-bound instance is
+     * already configured from the application's own settings, so "no per-model override", "an
+     * override that says nothing" and "an override that repeats the application's setting"
+     * all land on the same object, and a counted scheme on the same shared space.
+     *
+     * Any other override is a space of the model's own. A counted one is numbered from the
+     * model's own rows rather than past every row in the table, so its shortest tokens come
+     * first; a random one draws the same way wherever it is.
      *
      * @param  array<string, mixed>  $options
      */
@@ -1164,29 +1584,32 @@ trait HasPolyslug
         $length = $options['length'] ?? null;
         $alphabet = $options['alphabet'] ?? null;
 
-        if (! is_int($length) && ! is_string($alphabet)) {
+        // Each setting the override leaves out falls back to the one the ENCODER already
+        // carries, not to the class default: an override that names only an alphabet is asking
+        // to change the alphabet, and one that names only a length is asking to change the
+        // length. Resetting the other to its default would undo the application's own setting
+        // while looking like it did nothing.
+        $width = is_int($length) ? $length : $instance->scheme()->length();
+        $characters = is_string($alphabet) ? new TokenAlphabet($alphabet) : $instance->scheme()->alphabet();
+
+        if ($width === $instance->scheme()->length() && $characters->alphabet === $instance->scheme()->alphabet()->alphabet) {
             return $instance;
         }
 
-        // The length falls back to the one the ENCODER already carries, not to the class
-        // default: an override that names only an alphabet is asking to change the alphabet,
-        // and silently resetting the length to 16 would undo the application's own setting
-        // while looking like it did nothing.
-        $class = $instance::class;
-        $width = is_int($length) ? $length : $instance->scheme()->length();
         $container = Container::getInstance();
-        $key = $class.':'.$width.':'.(is_string($alphabet) ? $alphabet : '');
+        $key = $instance::class.':'.$width.':'.$characters->alphabet;
+
+        // The closure captures what kind of encoder to build, never the instance it came from:
+        // a binding outlives every flush of its instance, and a captured encoder would keep its
+        // memo alive with it.
+        $sequential = $instance instanceof SequentialTokenEncoder;
 
         if (! $container->bound($key)) {
-            $container->instance($key, new $class(
-                $width,
-                is_string($alphabet) ? new TokenAlphabet($alphabet) : null,
-            ));
+            $container->scoped($key, static fn (): IdentityEncoder => $sequential ? new SequentialTokenEncoder($width, $characters, ownSpace: true) : new RandomTokenEncoder($width, $characters));
         }
 
         // The key is written nowhere else and only ever with this type, so the annotation
-        // states a fact rather than asking to be trusted. A runtime re-check here would be a
-        // branch no run can enter.
+        // states a fact rather than asking to be trusted.
         /** @var IdentityEncoder $encoder */
         $encoder = $container->make($key);
 
@@ -1249,7 +1672,7 @@ trait HasPolyslug
         $parts = [];
 
         foreach ($config->source as $column) {
-            $value = $this->getAttribute($column);
+            $value = $this->polyslugColumnValue($this->getAttribute($column));
 
             if (is_scalar($value)) {
                 $parts[] = (string) $value;
@@ -1276,17 +1699,57 @@ trait HasPolyslug
      */
     private function polyslugScopeKey(PolyslugConfig $config, callable $valueFor): string
     {
-        $parts = [];
+        $values = [];
 
         foreach ($config->scope as $column) {
-            $value = $valueFor($column);
+            $value = $this->polyslugColumnValue($valueFor($column));
 
             // The cast states the intent; it does not change the result. Concatenation coerces
             // every scalar to the same string either way, so this is for the reader and the
             // analyzer rather than for the key.
-            $parts[] = $column.':'.(is_scalar($value) ? (string) $value : '');
+            $values[] = is_scalar($value) ? (string) $value : '';
         }
 
-        return implode('|', $parts);
+        // A value that carries the separator lets two scopes of several columns spell one key:
+        // (owner: 'a|project:b', project: '') and (owner: 'a', project: 'b|project:') both read
+        // 'owner:a|project:b|project:'. Such a key is written with every value percent-encoded,
+        // behind a leading separator. A plain key starts with a column name, and no column name
+        // carries the separator, so the two forms never meet. Every other key, every key of a
+        // single column included, stays what it was written as.
+        $escaped = count($values) > 1 && str_contains(implode('', $values), '|');
+        $parts = [];
+
+        foreach ($config->scope as $index => $column) {
+            $parts[] = $column.':'.($escaped ? rawurlencode($values[$index]) : $values[$index]);
+        }
+
+        $key = ($escaped ? '|' : '').implode('|', $parts);
+
+        // The key is stored in a column as long as the schema's default string length. One that
+        // would not fit is stored as its digest, which every read builds the same way; one that
+        // fits is stored as it is, so the keys already written stay what they were. A scope value
+        // can come from a user, and two keys that shared a digest would share a scope, so the
+        // digest is one whose collisions cannot be constructed.
+        return mb_strlen($key) > SchemaBuilder::$defaultStringLength ? 'sha256:'.hash('sha256', $key) : $key;
+    }
+
+    /**
+     * A column value as the slug source and the scope key read it.
+     *
+     * A cast attribute is an object, and an object is no scalar: an enum, a date or a
+     * Stringable used to fall out of the source and contribute nothing to the scope key, so two
+     * regions shared one scope. An enum counts by its value, a date by the string the model
+     * stores for it, a Stringable by its text. An array still contributes nothing, because no
+     * encoding of it would survive a change of cast.
+     */
+    private function polyslugColumnValue(mixed $value): mixed
+    {
+        $value = enum_value($value);
+
+        return match (true) {
+            $value instanceof DateTimeInterface => $this->fromDateTime($value),
+            $value instanceof Stringable => (string) $value,
+            default => $value,
+        };
     }
 }

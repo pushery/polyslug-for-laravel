@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Exceptions;
 
+use Polyslug\Support\PolyslugHead;
 use RuntimeException;
 
 /**
@@ -123,9 +124,44 @@ final class MisconfiguredPolyslug extends RuntimeException
             .'robots directive any crawler defines. An unrecognized token is silently ignored, so a '
             .'typo in a directive meant to restrict a page does nothing and looks like it worked — '
             .'`nofollw` for `nofollow` renders a tag a reader would swear is correct. Use one of: '
-            .'all, noindex, nofollow, none, noarchive, nosnippet, indexifembedded, notranslate, '
-            .'noimageindex, max-snippet:N, max-image-preview:none|standard|large, max-video-preview:N, '
-            .'unavailable_after:DATE.'
+            .implode(', ', PolyslugHead::robotsVocabulary()).'.'
+        );
+    }
+
+    public static function separatorIsNotUrlSafe(string $separator): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot use the separator ['.$separator.']: '
+            .'a slug sits in the path segment before its token, so the separator may only use `-`, `.` and `~`. '
+            .'`_` separates the slug from the token and `/` separates the slugs of a nested URL, so a slug '
+            .'of two words with either is split at it and never found at its own address. '
+            .'Pick `-`, `.` or `~`.'
+        );
+    }
+
+    /**
+     * @param  list<string>  $allowed
+     */
+    public static function unknownOption(string $option, string $value, array $allowed): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot set `'.$option.'` to ['.$value.']: '
+            .'the option takes one of ['.implode(', ', $allowed).'], and any other value used to '
+            .'fall back to the default without a word. '
+            .'Use one of those values.'
+        );
+    }
+
+    /**
+     * @param  list<string>  $allowed
+     */
+    public static function unknownConfigValue(string $key, mixed $value, array $allowed): self
+    {
+        return new self(
+            'The setting `polyslug.'.$key.'` cannot be ['.(is_scalar($value) ? (string) $value : get_debug_type($value)).']: '
+            .'it takes one of ['.implode(', ', $allowed).'], and any other value used to '
+            .'fall back to the default without a word. '
+            .'Set one of those values in config/polyslug.php, or remove the key for the default.'
         );
     }
 

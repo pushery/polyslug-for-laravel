@@ -10,9 +10,11 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Polyslug;
+use Polyslug\Support\SuccessorChain;
 use Throwable;
 
 final class SitemapCommand extends Command
@@ -32,6 +34,14 @@ final class SitemapCommand extends Command
      */
     private const int ENVELOPE_RESERVE = 1024;
 
+    /**
+     * How many rows are read, and have their slugs and tokens loaded, in one round.
+     *
+     * Small enough that one round of models and slug rows is a modest amount of memory, large
+     * enough that the queries per round stop mattering against the rows they serve.
+     */
+    private const int ROWS_PER_ROUND = 500;
+
     /** @var string */
     protected $description = 'Generate an XML sitemap (with hreflang alternates) for the registered sluggable models.';
 
@@ -41,6 +51,13 @@ final class SitemapCommand extends Command
      * @var array<class-string, int>
      */
     private array $unaddressed = [];
+
+    /**
+     * Files written under a temporary name this run, each with the name it is published as.
+     *
+     * @var list<array{string, string}>
+     */
+    private array $staged = [];
 
     public function handle(): int
     {
@@ -60,6 +77,20 @@ final class SitemapCommand extends Command
         $path = $this->option('path');
         $path = is_string($path) && $path !== '' ? $path : null;
 
+        try {
+            return $this->generate($resolver, is_array($types) ? $types : [], $maxUrls, $maxBytes, $path);
+        } finally {
+            // A run that refused or threw published nothing, and the files it staged go. After a
+            // successful run there are none left.
+            $this->discardStaged();
+        }
+    }
+
+    /**
+     * @param  array<mixed>  $types
+     */
+    private function generate(PolyslugUrlResolver $resolver, array $types, int $maxUrls, int $maxBytes, ?string $path): int
+    {
         // A part is flushed the moment it is full, so peak memory is ONE part rather than the
         // whole document. Writing to stdout has nowhere to flush to, so that path keeps the
         // single-document behavior and says so if the result is over a ceiling.
@@ -68,7 +99,7 @@ final class SitemapCommand extends Command
         $bytes = 0;
         $written = 0;
 
-        foreach (is_array($types) ? $types : [] as $class) {
+        foreach ($types as $class) {
             if (! is_string($class)) {
                 continue;
             }
@@ -81,11 +112,8 @@ final class SitemapCommand extends Command
             // Stream rows so a giant table never loads into memory at once, and through the
             // model's own gate so a row it hides is not announced (see rows()).
             //
-            // A positive branch rather than a `! instanceof` with a `continue`, for the reason
-            // TokenStore gives about its own: the class was already checked against Sluggable
-            // above, so every row this loop sees is one. The `continue` was a statement no run
-            // can execute -- the coverage floor said so -- and it reads to the next person like
-            // a case that happens.
+            // The class was checked against Sluggable above, so every row this loop sees is one;
+            // the `instanceof` narrows the type for what follows.
             foreach ($this->rows($class) as $model) {
                 if ($model instanceof Sluggable) {
                     foreach ($this->entriesFor($model, $resolver) as $entry) {
@@ -126,7 +154,8 @@ final class SitemapCommand extends Command
         // Nothing was ever flushed, so everything still fits one file and the output is exactly
         // what it was before splitting existed: one document at --path, no index.
         if ($parts === []) {
-            file_put_contents($path, $this->render($buffer));
+            $this->stage($path, $this->render($buffer));
+            $this->publishStaged();
             $this->info($written.' URL(s) written to ['.$path.'].');
             $this->reportUnaddressed();
 
@@ -144,7 +173,8 @@ final class SitemapCommand extends Command
 
         $parts[] = $this->writePart($path, count($parts) + 1, $buffer);
 
-        file_put_contents($path, $this->renderIndex($base, $parts));
+        $this->stage($path, $this->renderIndex($base, $parts));
+        $this->publishStaged();
         $this->info($written.' URL(s) written across '.count($parts).' file(s), indexed by ['.$path.'].');
         $this->reportUnaddressed();
 
@@ -164,6 +194,13 @@ final class SitemapCommand extends Command
      * further down: the gate lives on HasPolyslug, so an application implementing Sluggable by
      * hand keeps its whole table instead of failing to load.
      *
+     * Read in rounds, and each round arrives with its slug rows and its tokens already loaded:
+     * the `slugs` relation is eager-loaded with the round, and polyslugPreload() fetches the
+     * round's tokens in one query. Every entry reads both, so without them a record cost about
+     * five slug queries and a token query of its own, and a run over a million rows was six
+     * million queries. A model implementing Sluggable by hand has neither the relation nor the
+     * preload, and is read in rounds all the same.
+     *
      * @param  class-string<Model>  $class
      * @return iterable<int, Model>
      */
@@ -171,8 +208,23 @@ final class SitemapCommand extends Command
     {
         $model = new $class;
         $gated = method_exists($model, 'polyslugResolveQuery') ? $model->polyslugResolveQuery($model->newQuery()) : null;
+        $query = $gated instanceof Builder ? $gated : $model->newQuery();
 
-        return ($gated instanceof Builder ? $gated : $model->newQuery())->lazyById();
+        if (method_exists($model, 'polyslugPreload')) {
+            $query->with('slugs');
+        }
+
+        // reorder() because a resolution gate may sort its query, and lazyById() keeps a foreign
+        // order in front of the key it pages by. Each round would then be sorted by the gate's
+        // column while the cursor moves by the key, and rows would be skipped or listed twice.
+        // The sitemap needs every row once, in any order.
+        foreach ($query->reorder()->lazyById(self::ROWS_PER_ROUND)->chunk(self::ROWS_PER_ROUND) as $round) {
+            if (method_exists($model, 'polyslugPreload')) {
+                $model->polyslugPreload($round);
+            }
+
+            yield from $round->values();
+        }
     }
 
     /**
@@ -256,9 +308,58 @@ final class SitemapCommand extends Command
         $extension = pathinfo($path, PATHINFO_EXTENSION);
         $file = $name.($extension === '' ? '' : '.'.$extension);
 
-        file_put_contents(($directory === '.' ? '' : $directory.'/').$file, $this->render($entries));
+        $this->stage(($directory === '.' ? '' : $directory.'/').$file, $this->render($entries));
 
         return $file;
+    }
+
+    /**
+     * Write a file under a temporary name beside its target, for publishStaged() to publish.
+     *
+     * The target is left alone until the run has produced every file, so a run that fails
+     * part-way leaves the last good sitemap where it was. Writing in place replaced each file the
+     * moment it was written: a run that ended early had already published the parts it reached.
+     */
+    private function stage(string $file, string $contents): void
+    {
+        $temporary = $file.'.'.bin2hex(random_bytes(4)).'.tmp';
+
+        file_put_contents($temporary, $contents);
+
+        $this->staged[] = [$temporary, $file];
+    }
+
+    /**
+     * Publish every staged file under its own name, in the order it was staged: the parts
+     * before the index that names them.
+     *
+     * rename() replaces a file in one step, so a crawler reads the old document or the new one
+     * and never part of either. The permissions of a file being replaced carry over, as they
+     * did when it was overwritten in place.
+     */
+    private function publishStaged(): void
+    {
+        foreach ($this->staged as [$temporary, $file]) {
+            if (is_file($file)) {
+                chmod($temporary, fileperms($file) & 0o777);
+            }
+
+            rename($temporary, $file);
+        }
+
+        $this->staged = [];
+    }
+
+    /**
+     * Remove the files a run staged and did not publish.
+     */
+    private function discardStaged(): void
+    {
+        foreach ($this->staged as [$temporary]) {
+            unlink($temporary);
+        }
+
+        $this->staged = [];
     }
 
     /**
@@ -281,16 +382,14 @@ final class SitemapCommand extends Command
     {
         // The same precedence the canonical middleware applies, in the same order: a gone
         // record answers 410, a superseded one whose successor the gate lets through answers
-        // 301, and neither is an address to submit. The successor is resolved rather than
-        // merely checked, as the middleware does, so a successor the requester may not see
-        // leaves the record listed — that request is served, not redirected.
+        // 301, and neither is an address to submit. The successor chain is the middleware's
+        // own, so a successor the requester may not see, or a chain that comes back to the
+        // record, leaves the record listed: that request is served, not redirected.
         if ($model->polyslugIsGone()) {
             return [];
         }
 
-        $successor = $model->polyslugSupersededBy();
-
-        if ($successor instanceof Sluggable && $successor->polyslugResolveSelf() instanceof Sluggable) {
+        if (SuccessorChain::lastVisible($model) instanceof Sluggable) {
             return [];
         }
 
@@ -311,19 +410,39 @@ final class SitemapCommand extends Command
         // never had a route, or one whose route was renamed while the config stayed, is
         // ordinary rather than exotic.
         //
-        // The failure direction made it worse. A scheduled run that ends red does not replace
-        // the file it was going to write, so the previous sitemap stays where it is and ages
-        // silently -- which from the outside is indistinguishable from a sitemap being kept up
-        // to date.
+        // The failure direction made it worse. A type that can never be addressed would end
+        // every run red, and a run that ends red does not replace the file it was going to
+        // write, so the previous sitemap stays where it is and ages silently -- which from the
+        // outside is indistinguishable from a sitemap being kept up to date.
+        //
+        // ONLY THE RESOLVER IS ASKED, and only about addressing. hreflangLinks() reads the
+        // package's own tables as well, and the catch used to stand around the whole call: a
+        // database that failed during a run emptied the sitemap, the run exited 0, and the
+        // warning blamed the resolver. A database error says nothing about whether a record can
+        // be addressed, wherever it is raised, so it ends the run. That run is transient and
+        // red, and it publishes nothing, because the files are replaced only once every one of
+        // them is written.
         if (! $this->canAddress($model, $resolver)) {
             return [];
         }
 
-        try {
-            $urls = $model->hreflangLinks(
-                fn (string $locale, string $routeKey): string => $resolver->url($model, $locale),
-            );
-        } catch (Throwable) {
+        $refused = false;
+
+        $urls = $model->hreflangLinks(function (string $locale, string $routeKey) use ($model, $resolver, &$refused): string {
+            try {
+                return $resolver->url($model, $locale);
+            } catch (Throwable $exception) {
+                if ($exception instanceof QueryException) {
+                    throw $exception;
+                }
+
+                $refused = true;
+
+                return '';
+            }
+        });
+
+        if ($refused) {
             // Counted rather than swallowed. The run continues, and the operator is told at
             // the end which types were dropped and how many records that was -- silence here
             // would trade a loud failure for a quiet one, which is the worse of the two.

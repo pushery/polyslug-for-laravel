@@ -17,7 +17,7 @@ namespace Polyslug\Contracts;
  * model's URL no longer yields another model's URL for the same id.
  *
  * IT EXTENDS IdentityEncoder RATHER THAN REPLACING IT, so an encoder written against the
- * older contract keeps working untouched — it simply keeps one shared space, which is what
+ * older contract keeps working untouched — it keeps one shared space, which is what
  * it always had. The inherited untyped methods stay meaningful here too: they address the
  * UNTYPED lane, which is where tokens issued before this contract existed live, and it is
  * what a legacy decoder reaches through.

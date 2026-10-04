@@ -7,6 +7,8 @@ namespace Polyslug\Console;
 use Illuminate\Console\Command;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
@@ -18,6 +20,7 @@ use Polyslug\Encoders\RandomTokenEncoder;
 use Polyslug\Encoders\SequentialTokenEncoder;
 use Polyslug\Support\TokenAlphabet;
 use ReflectionMethod;
+use Throwable;
 
 final class DoctorCommand extends Command
 {
@@ -140,8 +143,8 @@ final class DoctorCommand extends Command
             return true;
         }
 
-        // One short line per finding. The console component wraps long lines, and a
-        // wrapped line is one an operator skims past — and one no test can match on.
+        // One short line per finding: the console component wraps long lines, and a
+        // wrapped line is one an operator skims past.
         foreach ($ungated as $class) {
             $this->line(sprintf('  ! [%s] does not override polyslugResolveQuery().', $class));
         }
@@ -207,8 +210,9 @@ final class DoctorCommand extends Command
      */
     private function checkTokenSpace(): void
     {
+        $identity = $this->identityAlphabet();
         $spaces = [
-            'identity tokens' => ['polyslug_tokens', $this->identityAlphabet()],
+            'identity tokens' => ['polyslug_tokens', $identity],
             'short links' => ['polyslug_short_links', Container::getInstance()->make(TokenScheme::class)->alphabet()],
         ];
 
@@ -219,29 +223,102 @@ final class DoctorCommand extends Command
                 continue;
             }
 
-            foreach ($this->tokenCounts($table) as $length => $issued) {
-                $space = $alphabet->spaceFor($length);
-                $used = $issued / $space;
+            $this->reportFill($label, $alphabet, $this->tokenCounts($table));
+        }
 
-                // Below a quarter there is nothing to say, and saying it anyway is how a
-                // diagnostic becomes noise an operator learns to scroll past.
-                if ($used < 0.25) {
-                    continue;
-                }
-
-                $this->line(sprintf(
-                    '  ! %s: %s of %s %d-character tokens are taken (%d%%).',
-                    $label,
-                    number_format($issued),
-                    $this->approximate($space),
-                    $length,
-                    (int) round($used * 100),
-                ));
-                $this->line(sprintf('    New tokens widen to %d characters as this fills.', $length + 1));
+        if (Schema::hasTable('polyslug_tokens')) {
+            foreach ($this->modelTokenSpaces($identity) as [$types, $alphabet]) {
+                $this->reportFill('identity tokens of '.implode(', ', $types), $alphabet, $this->tokenCounts('polyslug_tokens', $types));
             }
         }
 
         $this->line('  ✓ token spaces reported.');
+    }
+
+    /**
+     * One line per width that is at least a quarter full, and what happens as it fills.
+     *
+     * @param  array<int, int>  $counts
+     */
+    private function reportFill(string $label, TokenAlphabet $alphabet, array $counts): void
+    {
+        foreach ($counts as $length => $issued) {
+            $space = $alphabet->spaceFor($length);
+            $used = $issued / $space;
+
+            // Below a quarter there is nothing to say, and saying it anyway is how a
+            // diagnostic becomes noise an operator learns to scroll past.
+            if ($used < 0.25) {
+                continue;
+            }
+
+            $this->line(sprintf(
+                '  ! %s: %s of %s %d-character tokens are taken (%d%%).',
+                $label,
+                number_format($issued),
+                $this->approximate($space),
+                $length,
+                (int) round($used * 100),
+            ));
+            $this->line(sprintf('    New tokens widen to %d characters as this fills.', $length + 1));
+        }
+    }
+
+    /**
+     * The token spaces models chose for themselves, each with the types that draw from it.
+     *
+     * A model whose #[Polyslug] encoderOptions name an alphabet of its own draws from a space
+     * the report on the application's alphabet does not measure: there, nine tokens are a
+     * rounding error, while the model's own nine-token space is full. So every type that holds
+     * tokens is asked for the alphabet its encoder actually uses, and types that share an
+     * alphabet are reported together, because a token is unique across the whole table and
+     * they fill one space between them. A type on the application's alphabet is already in
+     * the report above.
+     *
+     * @return list<array{0: list<string>, 1: TokenAlphabet}>
+     */
+    private function modelTokenSpaces(TokenAlphabet $identity): array
+    {
+        $spaces = [];
+        $types = array_filter(DB::table('polyslug_tokens')->where('key_type', '!=', '')->distinct()->orderBy('key_type')->pluck('key_type')->all(), is_string(...));
+
+        foreach ($types as $type) {
+            $alphabet = $this->modelTokenAlphabet($type);
+
+            if ($alphabet instanceof TokenAlphabet && $alphabet->alphabet !== $identity->alphabet) {
+                $spaces[$alphabet->alphabet] ??= [[], $alphabet];
+                $spaces[$alphabet->alphabet][0][] = $type;
+            }
+        }
+
+        return array_values($spaces);
+    }
+
+    /**
+     * The alphabet a type's stored tokens are drawn from, or null when it has none of its own.
+     *
+     * Read from the encoder the model builds for itself, through the method its own reads and
+     * writes go through, so the report follows whatever that method decides. A type that names
+     * no model this package manages, such as a class removed since its rows were written, has
+     * no encoder to ask; its rows are still counted on the application's alphabet.
+     */
+    private function modelTokenAlphabet(string $type): ?TokenAlphabet
+    {
+        $class = Relation::getMorphedModel($type) ?? $type;
+
+        if (! is_a($class, Model::class, true) || ! method_exists($class, 'polyslugEncoder')) {
+            return null;
+        }
+
+        try {
+            $encoder = new ReflectionMethod($class, 'polyslugEncoder')->invoke(new $class);
+        } catch (Throwable $exception) {
+            $this->line(sprintf('  ! [%s] cannot build its encoder, so its own token space is not reported: %s', $class, $exception->getMessage()));
+
+            return null;
+        }
+
+        return $encoder instanceof RandomTokenEncoder || $encoder instanceof SequentialTokenEncoder ? $encoder->scheme()->alphabet() : null;
     }
 
     /**
@@ -271,13 +348,19 @@ final class DoctorCommand extends Command
      * where an alias is a dialect question. length() is characters on PostgreSQL and bytes on
      * MySQL, which agree because a token alphabet is URL-unreserved and therefore ASCII.
      *
+     * @param  list<string>|null  $types  only the rows of these key types, when given
      * @return array<int, int>
      */
-    private function tokenCounts(string $table): array
+    private function tokenCounts(string $table, ?array $types = null): array
     {
         $counts = [];
+        $query = DB::table($table)->selectRaw('length(token) as token_length, count(*) as total')->groupByRaw('length(token)');
 
-        foreach (DB::table($table)->selectRaw('length(token) as token_length, count(*) as total')->groupByRaw('length(token)')->get() as $row) {
+        if ($types !== null) {
+            $query->whereIn('key_type', $types);
+        }
+
+        foreach ($query->get() as $row) {
             $length = is_numeric($row->token_length ?? null) ? (int) $row->token_length : 0;
             $total = is_numeric($row->total ?? null) ? (int) $row->total : 0;
 
@@ -307,6 +390,18 @@ final class DoctorCommand extends Command
             if (! is_string($class) || ! class_exists($class) || ! is_a($class, IdentityEncoder::class, true)) {
                 $this->line(sprintf('  ✗ [%s] is not a valid IdentityEncoder.', is_string($class) ? $class : gettype($class)));
                 $ok = false;
+
+                continue;
+            }
+
+            // Built the way a request builds it, because a valid class can still refuse to be
+            // constructed: SqidsEncoder needs the bcmath or gmp extension and throws without
+            // both, on the first token a request renders or, as a legacy decoder, reads.
+            try {
+                Container::getInstance()->make($class);
+            } catch (Throwable $e) {
+                $this->line(sprintf('  ✗ [%s] cannot be built: %s', $class, $e->getMessage()));
+                $ok = false;
             }
         }
 
@@ -317,14 +412,29 @@ final class DoctorCommand extends Command
         return $ok;
     }
 
+    /**
+     * The indexes that hold the guarantees, by name AND by kind.
+     *
+     * A name alone is not the guarantee: an index of the same name that is not unique, left by a
+     * hand-made rebuild or a rollback that failed halfway, lets two current slugs collide while
+     * the name is still there.
+     */
     private function checkIndexes(): bool
     {
-        $existing = Schema::getIndexListing('polyslug_slugs');
+        $unique = [];
+
+        foreach (Schema::getConnection()->getSchemaBuilder()->getIndexes('polyslug_slugs') as $index) {
+            $unique[$index['name']] = $index['unique'];
+        }
+
         $ok = true;
 
         foreach (['polyslug_slugs_current_unique', 'polyslug_slugs_one_current'] as $name) {
-            if (! in_array($name, $existing, true)) {
+            if (! array_key_exists($name, $unique)) {
                 $this->line(sprintf('  ✗ unique index [%s] is missing — run the migrations.', $name));
+                $ok = false;
+            } elseif (! $unique[$name]) {
+                $this->line(sprintf('  ✗ index [%s] exists but is not unique, so two current slugs can collide — drop it and run the migrations.', $name));
                 $ok = false;
             }
         }

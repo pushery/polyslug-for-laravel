@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Support;
 
+use Closure;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -43,13 +44,43 @@ final class TokenStore
      */
     public const string UNTYPED = '';
 
+    /**
+     * How many entries each memo holds before it lets go of its older half.
+     *
+     * The memos copy rows that do not change once claimed, so dropping an entry costs one
+     * query the next time that key is asked for, never a wrong answer. Without a ceiling they
+     * grew for the life of the process: a sitemap run over a large table, a queue worker or a
+     * long-lived server kept every token it had ever seen, and the decode memo keeps misses as
+     * well, so a stream of invented tokens could grow it without end.
+     */
+    private const int MEMO_LIMIT = 10_000;
+
+    /**
+     * How many keys or tokens one statement of a batch carries.
+     *
+     * Every statement of a batch binds one parameter per key, the insert five, and an engine
+     * refuses a statement past its limit: 65,535 parameters on PostgreSQL and MySQL, 32,766 on
+     * SQLite. A batch therefore runs in slices of this size, which keeps the widest statement
+     * at 5,000 parameters.
+     */
+    private const int SLICE = 1_000;
+
     /** @var array<string, string> */
     private array $encoded = [];
 
     /** @var array<string, int|string|null> */
     private array $decoded = [];
 
-    public function __construct(private readonly TokenScheme $scheme) {}
+    /**
+     * @param  bool  $ownSpace  whether the space belongs to the models that configured it through
+     *                          their encoderOptions, rather than being shared by every model; a
+     *                          counted scheme then starts from the rows of the type it is asked for
+     */
+    public function __construct(
+        private readonly TokenScheme $scheme,
+        private readonly int $memoLimit = self::MEMO_LIMIT,
+        private readonly bool $ownSpace = false,
+    ) {}
 
     public function tokenFor(int|string $id, string $type = self::UNTYPED): string
     {
@@ -60,14 +91,17 @@ final class TokenStore
             return $this->encoded[$memo];
         }
 
+        $this->trim($this->encoded);
+
         // Read-then-write is a RACE, and this runs on the URL-render path: two requests
         // rendering the same never-before-encoded model both miss the SELECT and both
         // INSERT, so the loser takes a unique-constraint violation — a 500 on a GET,
         // intermittent and unreproducible after the fact. insertOrIgnore turns that loss
-        // into a return value instead of an exception (catching a duplicate-key error is
-        // not portable across engines — the same reason the slug write path uses it), and
-        // the loser then adopts the winner's token: both requests emit the same canonical
-        // URL, which is the correct outcome anyway.
+        // into a return value instead of an exception (a caught duplicate-key error inside an
+        // application's own transaction leaves that transaction aborted on PostgreSQL unless a
+        // savepoint is rolled back, and the slug write path avoids savepoint rollbacks for the
+        // same reason), and the loser then adopts the winner's token: both requests emit the
+        // same canonical URL, which is the correct outcome anyway.
         for ($attempt = 0; $attempt < self::CLAIM_ATTEMPTS; $attempt++) {
             // BOTH lanes in one statement. This runs while a URL is being rendered, so the
             // owner's row and the row this record may have left in the UNTYPED lane are asked
@@ -107,7 +141,7 @@ final class TokenStore
                 return $this->encoded[$memo] = $orphan;
             }
 
-            $token = $this->scheme->draw($attempt, $this->issued(...));
+            $token = $this->scheme->draw($attempt, $this->lowerBound($type, $attempt));
 
             $inserted = DB::table('polyslug_tokens')->insertOrIgnore([
                 'key_type' => $type,
@@ -134,7 +168,8 @@ final class TokenStore
     }
 
     /**
-     * One SELECT for every key, one INSERT for the ones that are missing.
+     * One SELECT for every key, one INSERT for the ones that are missing, a thousand keys a
+     * statement.
      *
      * This is what the default configuration reaches through, and it is the only shipped
      * encoder path that reads the database — so on a rendered list it was the last per-row
@@ -165,6 +200,10 @@ final class TokenStore
 
         $memo = fn (string $key): string => $type."\0".$key;
 
+        // Trimmed before the batch rather than during it: every decision below reads the
+        // memo, and an entry dropped halfway through would send its key down the slow path.
+        $this->trim($this->encoded);
+
         // Cast BACK to string, and this is not redundant. PHP normalizes a numeric string
         // array key to an int, so array_keys() on a map built from `(string) $id` hands back
         // ints for every numeric id — which is every default Eloquent key. The keys are
@@ -174,7 +213,21 @@ final class TokenStore
         $wanted = array_map(strval(...), array_keys($keys));
         $missing = array_values(array_filter($wanted, fn (string $key): bool => ! isset($this->encoded[$memo($key)])));
 
-        if ($missing !== []) {
+        $now = Carbon::now();
+        $offset = 0;
+
+        // Asked at most once for the whole batch, and only if the scheme asks at all: a random
+        // scheme never opens the closure, and paying for a count it does not read would put a
+        // query back into the one path that exists to remove them. Memoized across the slices
+        // rather than re-read per slice, because the offset below walks the count forward over
+        // every row this batch has drafted, written or not, so a fresh count after the first
+        // slice would count those rows twice.
+        $issued = null;
+        $counted = function () use (&$issued, $type): int {
+            return $issued ??= $this->ownSpace ? $this->issuedWithin($type) : $this->issued();
+        };
+
+        foreach (array_chunk($missing, self::SLICE) as $slice) {
             // BOTH lanes, exactly as the single-key path reads them, and for the same reason:
             // a record whose token predates owners must be ADOPTED rather than issued a second
             // one. Missing that here was not a slow path, it was a wrong one — a single
@@ -182,7 +235,7 @@ final class TokenStore
             // retire every URL they were published under, silently and in bulk.
             $rows = DB::table('polyslug_tokens')
                 ->whereIn('key_type', array_unique([$type, self::UNTYPED]))
-                ->whereIn('key_value', $missing)
+                ->whereIn('key_value', $slice)
                 ->get(['key_type', 'key_value', 'token']);
 
             $orphans = [];
@@ -208,28 +261,15 @@ final class TokenStore
                 }
             }
 
-            $unclaimed = array_values(array_filter($missing, fn (string $key): bool => ! isset($this->encoded[$memo($key)])));
+            $unclaimed = array_values(array_filter($slice, fn (string $key): bool => ! isset($this->encoded[$memo($key)])));
 
             if ($unclaimed !== []) {
-                $now = Carbon::now();
-                $offset = 0;
-
-                // Asked at most once for the whole batch, and only if the scheme asks at all:
-                // a random scheme never opens the closure, and paying for a MAX(id) it does
-                // not read would put a query back into the one path that exists to remove
-                // them. Memoized rather than re-read per row because nothing in this batch
-                // is written yet, so the answer cannot change while the map runs.
-                $issued = null;
-                $counted = function () use (&$issued): int {
-                    return $issued ??= $this->issued();
-                };
-
                 DB::table('polyslug_tokens')->insertOrIgnore(array_map(
                     // Each row gets its own candidate, and a COUNTED scheme needs them to
-                    // differ: it answers from how many tokens exist, and nothing in this
-                    // batch has been written yet, so every row would otherwise be handed the
-                    // same next number and all but one would be dropped by the unique index.
-                    // The offset walks the count forward as if the earlier rows had landed.
+                    // differ: it answers from how many tokens existed when the batch began, so
+                    // every row would otherwise be handed the same next number and all but one
+                    // would be dropped by the unique index. The offset walks the count forward
+                    // as if the earlier rows had landed, across the slices as well.
                     function (string $key) use ($now, $counted, $type, &$offset): array {
                         $token = $this->scheme->draw(0, static fn (): int => $counted() + $offset);
                         $offset++;
@@ -294,6 +334,8 @@ final class TokenStore
             return $this->decoded[$memo];
         }
 
+        $this->trim($this->decoded);
+
         // No ordering between the two lanes, and none is needed: `token` carries its own
         // unique index, so at most ONE row can match and there is nothing to rank. A CASE
         // ordering stood here, which reads as though a token could sit in both lanes at once —
@@ -304,6 +346,76 @@ final class TokenStore
             ->value('key_value');
 
         return $this->decoded[$memo] = is_string($key) ? $key : null;
+    }
+
+    /**
+     * Keep the newer half of a memo that has reached its ceiling.
+     *
+     * Called before an entry is added rather than after, and never in the middle of a batch,
+     * so a call always finds what it has just written. Halving rather than dropping one entry
+     * at a time keeps the cost of a trim spread over the many inserts that follow it.
+     *
+     * @template TValue
+     *
+     * @param  array<string, TValue>  $memo
+     */
+    private function trim(array &$memo): void
+    {
+        if (count($memo) >= $this->memoLimit) {
+            $memo = array_slice($memo, -intdiv($this->memoLimit + 1, 2), null, true);
+        }
+    }
+
+    /**
+     * The keys of many tokens WITHIN one morph type, in one query per thousand tokens.
+     *
+     * The bulk counterpart of keyFor(), with its semantics: the untyped lane is searched as a
+     * fallback, a token of another type or one nothing holds is absent from the result, and a
+     * miss is remembered like a hit, so asking again costs nothing.
+     *
+     * @param  list<string>  $tokens
+     * @return array<array-key, int|string>
+     */
+    public function keysFor(array $tokens, string $type = self::UNTYPED): array
+    {
+        $memo = fn (string $token): string => $type."\0".$token;
+
+        $this->trim($this->decoded);
+
+        $wanted = array_values(array_unique($tokens));
+        $missing = array_values(array_filter($wanted, fn (string $token): bool => ! array_key_exists($memo($token), $this->decoded)));
+
+        foreach (array_chunk($missing, self::SLICE) as $slice) {
+            foreach ($slice as $token) {
+                $this->decoded[$memo($token)] = null;
+            }
+
+            // At most one row per token: `token` carries its own unique index, across both lanes.
+            $rows = DB::table('polyslug_tokens')
+                ->whereIn('token', $slice)
+                ->whereIn('key_type', array_unique([$type, self::UNTYPED]))
+                ->get(['token', 'key_value']);
+
+            foreach ($rows as $row) {
+                $token = $this->columnString($row->token ?? null);
+
+                if ($token !== null) {
+                    $this->decoded[$memo($token)] = $this->columnString($row->key_value ?? null);
+                }
+            }
+        }
+
+        $keys = [];
+
+        foreach ($wanted as $token) {
+            $key = $this->decoded[$memo($token)] ?? null;
+
+            if ($key !== null) {
+                $keys[$token] = $key;
+            }
+        }
+
+        return $keys;
     }
 
     /**
@@ -329,9 +441,8 @@ final class TokenStore
         $own = null;
         $orphan = null;
 
-        // Written as a positive branch rather than a `null` guard with a `continue`: a column
-        // that is not a string cannot happen against this schema, so the guard would be a
-        // statement no run can execute.
+        // The token column holds a string in this schema. columnString() narrows the row's
+        // untyped value to that, and a row is filed into a lane only with one.
         foreach ($rows as $row) {
             $token = $this->columnString($row->token ?? null);
 
@@ -358,9 +469,8 @@ final class TokenStore
      *
      * PRECONDITION: $type is never the untyped lane. Both callers reach this only after
      * finding a row whose owner DIFFERS from theirs, and when the caller is itself the untyped
-     * lane the read asks for one lane, so every row is its own. There is deliberately no guard
-     * for that case: it would be a branch no run can enter, and it would read to the next
-     * person like a case that happens.
+     * lane the read asks for one lane, so every row is its own. That is why the method does
+     * not check for it.
      */
     private function claimOrphan(string $key, string $type): bool
     {
@@ -374,16 +484,59 @@ final class TokenStore
      * A lower bound on how many tokens have been handed out, read from the highest row id.
      *
      * The highest ID rather than a COUNT, for two reasons that point the same way: it is an
-     * index lookup instead of a scan, and a deleted row must not hand its token back to a
-     * counted scheme — an id is never reissued, a count is.
+     * index lookup instead of a scan, and deleting a row below the highest does not move it. A
+     * count drops with every deleted row, and each drop is one more taken candidate the claim
+     * has to walk past; enough of them and a claim runs out of attempts.
      *
      * It is only ever a HINT. A counted scheme starts from it and walks forward until the
-     * unique index accepts, so a bound that is behind costs attempts, never correctness.
+     * unique index accepts, so a bound that is behind costs attempts. What the index cannot
+     * refuse is a token whose row is gone: deleting the highest row lowers the bound to the
+     * row before it, and leaves the deleted token free to be drawn again, in a table filled
+     * in order by the very next record. This package never deletes a token row, and an
+     * application that prunes the table hands deleted tokens to new records.
      */
     private function issued(): int
     {
         $max = DB::table('polyslug_tokens')->max('id');
 
         return is_numeric($max) ? (int) $max : 0;
+    }
+
+    /**
+     * Where a counted scheme starts looking on this attempt.
+     *
+     * A space the whole table shares starts past every row in it. A space of its own starts
+     * from the rows of the type asking, so its shortest tokens are handed out first however
+     * many rows the rest of the table holds. Starting past every row there would skip them:
+     * twenty rows of another model and a three-letter alphabet at two characters lose all
+     * nine two-character tokens before the model has used one.
+     *
+     * Only the first half of the attempts stays in the space of its own. A token of another
+     * type can sit in it, and the unique index rejects that candidate however often it is
+     * drawn, so the second half starts past every row in the table, the way a shared space
+     * always does: the token is longer, and it is issued.
+     */
+    private function lowerBound(string $type, int $attempt): Closure
+    {
+        if ($this->ownSpace && $attempt < intdiv(self::CLAIM_ATTEMPTS, 2)) {
+            return fn (): int => $this->issuedWithin($type);
+        }
+
+        return $this->issued(...);
+    }
+
+    /**
+     * How many rows one type holds: the lower bound of a space of its own.
+     *
+     * A count rather than a highest id, because ids are shared with every other type and this
+     * bound is about this type alone. A deleted row lowers it by one, and the next candidate is
+     * then a token that still exists: the unique index rejects it and the claim walks on, out
+     * of the space of its own once the first half of its attempts is spent. The tokens that can
+     * come back are those of the newest rows, once they are the ones deleted, which is the same
+     * limit the highest id has. This package deletes no token rows.
+     */
+    private function issuedWithin(string $type): int
+    {
+        return DB::table('polyslug_tokens')->where('key_type', $type)->count();
     }
 }

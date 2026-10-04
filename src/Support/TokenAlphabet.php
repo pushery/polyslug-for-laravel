@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Polyslug\Support;
 
 use InvalidArgumentException;
+use Polyslug\Polyslug;
 
 /**
  * The character set a generated token is built from, and the counting system that goes
@@ -57,7 +58,18 @@ final readonly class TokenAlphabet
         // what the path means — a `/` splits the segment, a `?` or `#` ends the path.
         if (preg_match('/^[A-Za-z0-9._~-]+$/D', $this->alphabet) !== 1) {
             throw new InvalidArgumentException(
-                'A token alphabet may only use URL-unreserved characters (A-Z a-z 0-9 - . _ ~); got ['.$this->alphabet.'].'
+                'A token alphabet may only use URL-unreserved characters (A-Z a-z 0-9 - ~); got ['.$this->alphabet.'].'
+            );
+        }
+
+        // Two unreserved characters are taken all the same. `_` separates a slug from its
+        // token, and the read path splits at the LAST one, so a token containing it is cut and
+        // never found. `.` lets a token be the whole segment `.` or `..`, which a browser
+        // removes from the path before the request is sent.
+        if (str_contains($this->alphabet, Polyslug::DELIMITER) || str_contains($this->alphabet, '.')) {
+            throw new InvalidArgumentException(
+                'A token alphabet cannot use `_` or `.`: `_` separates the slug from the token in a URL, '
+                .'and `.` lets a token be the path segment `.` or `..`, which a browser removes; got ['.$this->alphabet.'].'
             );
         }
 

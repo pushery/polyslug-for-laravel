@@ -42,7 +42,7 @@ return new class extends Migration
         // Only now is the wider key safe to enforce: the rows have owners, so
         // (key_type, key_value) is already distinct everywhere key_value was.
         Schema::table('polyslug_tokens', function (Blueprint $table): void {
-            $table->dropUnique('polyslug_tokens_key_value_unique');
+            $table->dropUnique(['key_value']);
             $table->unique(['key_type', 'key_value']);
         });
     }
@@ -58,7 +58,7 @@ return new class extends Migration
         $this->dropRowsThatWouldCollideOnKeyValueAlone();
 
         Schema::table('polyslug_tokens', function (Blueprint $table): void {
-            $table->dropUnique('polyslug_tokens_key_type_key_value_unique');
+            $table->dropUnique(['key_type', 'key_value']);
             $table->unique('key_value');
             $table->dropColumn('key_type');
         });
