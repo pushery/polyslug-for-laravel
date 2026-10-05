@@ -58,6 +58,21 @@ final class MakePolyslugCommand extends GeneratorCommand
     }
 
     /**
+     * Whether PHP reserves the name or the class it names.
+     *
+     * GeneratorCommand compares the whole input with PHP's reserved words, and a name with a
+     * namespace is never one of them: `admin/list` is `Admin\List`, while the class it writes,
+     * `List`, does not parse. A reserved namespace segment is no problem, because a qualified
+     * name is a single token to PHP, so the class part is the one that has to be checked.
+     *
+     * @param  string  $name
+     */
+    protected function isReservedName($name): bool
+    {
+        return parent::isReservedName($name) || parent::isReservedName(class_basename($name));
+    }
+
+    /**
      * @param  string  $rootNamespace
      */
     protected function getDefaultNamespace($rootNamespace): string

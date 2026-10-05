@@ -187,10 +187,18 @@ final class PolyslugServiceProvider extends ServiceProvider
 
         $router = $this->app->make(Router::class);
         $router->aliasMiddleware('polyslug.canonical', EnsureCanonicalSlug::class);
+        // An explicit binding receives the value and the route and nothing else, so what the
+        // route declares for this parameter, a binding field and ->withTrashed(), is read here
+        // and handed on, where implicit binding would have applied it on its own.
         $router->bind('polyslug', function (string $value, Route $route): Model {
             $type = $route->parameter('type');
 
-            return Container::getInstance()->make(PolyslugResolver::class)->resolve(is_string($type) ? $type : '', $value) ?? throw new NotFoundHttpException;
+            return Container::getInstance()->make(PolyslugResolver::class)->resolve(
+                is_string($type) ? $type : '',
+                $value,
+                $route->bindingFieldFor('polyslug'),
+                $route->allowsTrashedBindings(),
+            ) ?? throw new NotFoundHttpException;
         });
 
         // Route::polyslug('/pages/{page}', ...) wires SubstituteBindings THEN polyslug.canonical

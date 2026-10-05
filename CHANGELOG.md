@@ -4,6 +4,31 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-10-05
+
+### 🔧 Changed
+
+- **A short link carries the request's query string over to the record's address.** `/go/{token}?utm_source=flyer` used to redirect to the canonical URL without the query, while both redirects of `polyslug.canonical` keep it, so a campaign parameter on a printed or shared link was lost. The resolver's URL is kept exactly as it comes: a parameter it sets itself keeps its value, the request adds the parameters it does not set, in front of a fragment the resolver returns. `ShortLinkController` now takes the request as its first argument; a route that points at the class is unaffected.
+- **`#[Polyslug(maxLength: …)]` below 1 is refused.** It used to be taken: `0` left every slug empty, so every URL fell back to the encoded id alone, and a negative limit cut that many characters off the end of each slug. Building the configuration now throws `MisconfiguredPolyslug`, as for the other options, and names the value.
+
+### 🐛 Fixed
+
+- **`polyslugResolveMany()` takes a set of any size on a model with string keys too.** 0.21.0 cut the token store into slices, but the lookup of the records after it still read every key in one query. Eloquent writes integer keys into the SQL and binds every other key, so a set of more than 65,535 UUID, ULID or other string keys ended in a query error on PostgreSQL and MySQL: measured on PostgreSQL 18 with 70,000 UUID values. The lookup now reads a thousand keys a query, and a set of up to a thousand keys costs the one query it always did.
+- **A gated page takes a valued robots directive written with a space after the colon.** Google's own examples write `unavailable_after: 2020-09-21`, and the check read the value from the character right after the colon, so that spelling was refused as unknown and `Head::polyslug()` threw while the gated page rendered. A valued directive now folds into `name:value` before it is checked, and renders in that form.
+- **`polyslugRobotsDirective()` takes the `RobotsRule` cases of `laravel/head`.** `[RobotsRule::NoIndex, RobotsRule::Follow]` lost every case as a token that is not a string, so the gated page was refused as though the method had returned nothing. A string-backed enum case now counts as its value and is checked like any other directive.
+- **A ring of nine or more superseded records is served instead of redirecting in circles.** One answer followed eight successors and, on a longer chain, named the eighth, which redirected in turn. A ring that did not come back within eight steps was never seen as one, so every page of it redirected to another until the browser gave up, and the sitemap left all of them out. The redirect now names only the end of a chain, so it never lands on a page that redirects again. It follows up to 32 successors to find that end, which takes a chain of ten in one redirect instead of two, and a chain whose end lies further away is served where it is.
+- **The polymorphic `{polyslug}` binding applies `->withTrashed()` and a binding field.** It is an explicit binding, which receives the value and the route and nothing else, and it resolved every value as though the route declared neither: a deleted record answered 404 on a route declared `->withTrashed()`, and `{polyslug:uuid}` read the value as a `slug_id` and answered 404 for every address. The binding now reads both off the route and applies them the way implicit binding does, and `PolyslugResolver::resolve()` takes them as two optional arguments.
+- **`polyslug:doctor` names a misspelled `short_links.scheme` instead of ending on it.** The binding refuses a scheme name outside `random` and `sequential` with an exception the token-scheme check did not catch, so the run stopped with a stack trace and the checks after it never ran. The check now reports anything a scheme throws while it is built, the way the encoder check already did.
+- **`polyslug:doctor` reads the uniqueness indexes where a replaced slug model writes.** With `polyslug.models` mapping the slug model to a subclass on another connection, every slug is written there, while the doctor still read `polyslug_slugs` on the default connection: it reported a missing index on a healthy setup, or passed one whose real table lacked it. The indexes are now read on the slug model's connection and table, and the short-link space is counted on the short-link model's.
+- **`make:polyslug` refuses a reserved class name behind a namespace.** The reserved-word check compared the whole name, so `admin/list` passed as `Admin\List` and the command wrote `final class List`, which does not parse, and reported success. The class part is now checked as well, and nothing is written.
+- **A model that extends a configured Polyslug model takes its configuration.** PHP does not inherit attributes, and the configuration was read from the class alone, so a subclass of a `#[Polyslug]` model threw `MissingPolyslugConfig` on its first save. The nearest class in the parent chain that carries the attribute is now the one read, and a subclass that declares its own replaces it.
+- **`@polyslugHreflang` takes the `x-default` locale as its third argument.** The directive stands for `hreflangTags()`, which takes it, while its target had two parameters, so `@polyslugHreflang($page, $resolver, 'de')` dropped `'de'` without a word and left `x-default` on the fallback locale.
+
+### 📚 Documentation
+
+- **The package manifest names the documentation under `support.docs`**, so the Packagist page links it next to the issue tracker and the source.
+- **`Polyslug::SLUG_PATTERN` and `isValidSlug()` are described as the default slug shape.** The reference called the pattern the one every generated slug must match, while a model with `unicode: 'native'`, `preserveCase: true` or another `separator` generates slugs outside it, and `isValidSlug()` refuses them.
+
 ## [0.21.0] - 2026-10-04
 
 ### Added

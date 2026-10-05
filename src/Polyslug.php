@@ -23,7 +23,14 @@ final class Polyslug
      */
     public const string DELIMITER = '_';
 
-    /** A well-formed slug: lowercase alphanumerics in single-hyphen-separated words. */
+    /**
+     * The default shape of a slug: lowercase ASCII alphanumerics in single-hyphen-separated
+     * words, which is what a model generates under the attribute's defaults.
+     *
+     * A model that sets `unicode: 'native'`, `preserveCase: true` or another `separator`
+     * generates slugs outside it, and so does a slug-only model whose empty source falls back to
+     * its encoded identity.
+     */
     public const string SLUG_PATTERN = '/^[a-z0-9]+(?:-[a-z0-9]+)*$/D';
 
     /**
@@ -64,7 +71,12 @@ final class Polyslug
         return $slug.self::DELIMITER.$encodedId;
     }
 
-    /** Whether the given string is a well-formed slug per {@see self::SLUG_PATTERN}. */
+    /**
+     * Whether the given string has the default slug shape, {@see self::SLUG_PATTERN}.
+     *
+     * A false answer says the slug is not in that shape, not that no model could have generated
+     * it: a model with other slug settings generates slugs this refuses.
+     */
     public static function isValidSlug(string $slug): bool
     {
         return preg_match(self::SLUG_PATTERN, $slug) === 1;

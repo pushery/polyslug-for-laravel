@@ -32,16 +32,24 @@ final class PolyslugConfigResolver
     }
 
     /**
+     * The attribute of the nearest class in the parent chain that carries one.
+     *
+     * PHP does not inherit attributes, so a model extending a configured one has none of its
+     * own, while it is the same kind of record with the same slugs. A subclass that declares the
+     * attribute itself replaces the inherited one.
+     *
      * @param  class-string  $class
      */
     private static function fromAttribute(string $class): PolyslugConfig
     {
-        $attributes = new ReflectionClass($class)->getAttributes(PolyslugAttribute::class);
+        for ($reflection = new ReflectionClass($class); $reflection !== false; $reflection = $reflection->getParentClass()) {
+            $attributes = $reflection->getAttributes(PolyslugAttribute::class);
 
-        if ($attributes === []) {
-            throw new MissingPolyslugConfig($class);
+            if ($attributes !== []) {
+                return PolyslugConfig::fromAttribute($attributes[0]->newInstance());
+            }
         }
 
-        return PolyslugConfig::fromAttribute($attributes[0]->newInstance());
+        throw new MissingPolyslugConfig($class);
     }
 }

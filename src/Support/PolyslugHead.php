@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Support;
 
+use BackedEnum;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Laravel\Head\CurrentHead;
@@ -301,6 +302,17 @@ final class PolyslugHead
      * that carries no usable token normalizes to [] and is refused by the caller —
      * the same outcome as an empty answer, which is the correct one.
      *
+     * A valued directive is written as `name:value`, without whitespace around the
+     * colon. Google's own examples write `unavailable_after: 2020-09-21`, and its
+     * syntax lines read `max-snippet: [number]`, so both spellings are in use; folding
+     * them into one lets the value be checked from its first character and keeps the
+     * rendered tag independent of the spelling, for the same reason as above.
+     *
+     * A string-backed enum case counts as its value. laravel/head's own `RobotsRule`
+     * is one, and robots() takes it, so `[RobotsRule::NoIndex, RobotsRule::Follow]` is
+     * the spelling a reader of that package reaches for first. Dropped as a non-string,
+     * it left an empty list behind and was refused as an answer that said nothing.
+     *
      * @return list<string>
      */
     private static function normalizeDirectives(mixed $directives): array
@@ -308,17 +320,22 @@ final class PolyslugHead
         $tokens = match (true) {
             is_string($directives) => explode(',', $directives),
             is_array($directives) => $directives,
+            $directives instanceof BackedEnum => [$directives],
             default => [],
         };
 
         $normalized = [];
 
         foreach ($tokens as $token) {
+            if ($token instanceof BackedEnum) {
+                $token = $token->value;
+            }
+
             if (! is_string($token)) {
                 continue;
             }
 
-            $token = strtolower(trim($token));
+            $token = (string) preg_replace('/^([^:\s]+)\s*:\s*/', '$1:', strtolower(trim($token)));
 
             if ($token !== '') {
                 $normalized[] = $token;

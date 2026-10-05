@@ -163,7 +163,7 @@ it unconditionally — with both in place the page issues no query per row.
 
 **Resolving many identifiers** (an API that receives a list of public ids):
 `Post::polyslugResolveMany($values)` returns `value => Post`, decoding the tokens in one query per
-thousand and loading the records in one more through `polyslugResolveQuery()`. Each value may be `slug_TOKEN` or
+thousand and loading the records through `polyslugResolveQuery()` in one query per thousand keys. Each value may be `slug_TOKEN` or
 the bare token; unknown, foreign-type and gated values are absent. Slug-only models resolve
 one value at a time. The bulk encoder contract is `BulkIdentityDecoder` (`decodeManyWithin()`).
 
@@ -238,7 +238,8 @@ A default applies as the base and loses to Polyslug, which is the outcome you wa
 That directive defaults to `none`, which per spec means `noindex, nofollow` — a stronger claim
 than the gate makes, since the gate is about indexability and says nothing about the links on
 the page. Override `polyslugRobotsDirective(): string|array` on the model to answer
-`['noindex', 'follow']` instead, which is usually what a draft or a gated preview wants. The
+`['noindex', 'follow']` instead, which is usually what a draft or a gated preview wants
+(`[RobotsRule::NoIndex, RobotsRule::Follow]` from `laravel/head` works the same). The
 answer must still contain `noindex` or `none`; anything permissive, and anything empty, throws
 `MisconfiguredPolyslug` rather than quietly un-gating the page. Say nothing and nothing
 changes.

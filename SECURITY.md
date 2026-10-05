@@ -6,8 +6,8 @@ While this package is in its `0.x` line, security fixes are released against the
 
 | Version | Supported |
 |---|---|
-| `0.x` (latest) | :white_check_mark: |
-| older | :x: |
+| `0.x` (latest) | Yes |
+| older | No |
 
 ## Reporting a vulnerability
 
@@ -24,4 +24,6 @@ You can expect an acknowledgment within **3 business days** and an assessment of
 
 ## Dependency updates
 
-Dependencies are kept current automatically: [Renovate](https://docs.renovatebot.com) opens the update pull requests, and every one of them is reviewed before it is merged. Known advisories are monitored continuously against the tree where the dependency work happens, and a security update is prioritized ahead of ordinary ones.
+This package declares version ranges, not a lock file: the versions of its dependencies in your application come from your own `composer.lock`. Keep them current with `composer update`, and run `composer audit` to check them against the known advisories.
+
+This repository is a read-only mirror of the released tree. Releases arrive as tags, and it carries no update pull requests.
