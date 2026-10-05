@@ -698,9 +698,10 @@ trait HasPolyslug
                     'is_current' => true,
                     // A non-idLess unique:false model opts its rows out of the current_unique
                     // index so records may share a slug (the id in the URL disambiguates), and
-                    // so does a slugless model, whose slug is empty for every record.
+                    // so does a slugless model, whose slug is empty for every record, and so does
+                    // any empty slug: it is no name, and its URL is the token alone.
                     // idLess is always unique (enforced by MisconfiguredPolyslug at config time).
-                    'enforce_unique' => $config->enforcesUniqueSlug(),
+                    'enforce_unique' => $config->enforcesUniqueSlug() && $desired !== '',
                     'created_at' => Carbon::now(),
                     'updated_at' => Carbon::now(),
                 ]);

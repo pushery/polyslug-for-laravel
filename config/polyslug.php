@@ -250,6 +250,10 @@ return [
     | (redirect_status) to that successor's canonical URL, preserving link equity
     | (e.g. a discontinued product → its replacement).
     |
+    | `status` takes a client error from 400 to 499 and `redirect_status` one of 301,
+    | 302, 303, 307 or 308. Any other value gives the default, and polyslug:doctor
+    | names it.
+    |
     */
 
     'gone' => [
@@ -267,7 +271,8 @@ return [
     | the record, such as one forced by a trademark complaint, a request for the
     | old slug answers `status` (410 Gone by default, or 404) once the application
     | has answered. Render resources/views/errors/410.blade.php to tell the visitor
-    | the address was renamed.
+    | the address was renamed. A value that is no client error from 400 to 499
+    | gives 410.
     |
     */
 
@@ -380,8 +385,10 @@ return [
     |
     | Status for the self-healing redirect from a stale slug to the canonical URL
     | (GET/HEAD only). 301 is permanent; use 302/307 while a slug is still volatile
-    | so the redirect is not cached. 308 is accepted too, and since only GET and HEAD
-    | are ever redirected, its method-preserving guarantee changes nothing here.
+    | so the redirect is not cached. 308 and 303 are accepted too: since only GET and
+    | HEAD are ever redirected, what either says about the method changes nothing
+    | here. Any other value gives 301, because a redirect cannot carry it, and
+    | polyslug:doctor names it.
     |
     */
 

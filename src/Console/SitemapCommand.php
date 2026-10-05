@@ -99,6 +99,10 @@ final class SitemapCommand extends Command
         $bytes = 0;
         $written = 0;
 
+        // Read before anything is replaced: the index this run overwrites is the only record of
+        // the parts an earlier run wrote beside it.
+        $previous = $path === null ? [] : $this->partsNamedBy($path);
+
         foreach ($types as $class) {
             if (! is_string($class)) {
                 continue;
@@ -156,6 +160,7 @@ final class SitemapCommand extends Command
         if ($parts === []) {
             $this->stage($path, $this->render($buffer));
             $this->publishStaged();
+            $this->removeParts($previous, []);
             $this->info($written.' URL(s) written to ['.$path.'].');
             $this->reportUnaddressed();
 
@@ -175,6 +180,7 @@ final class SitemapCommand extends Command
 
         $this->stage($path, $this->renderIndex($base, $parts));
         $this->publishStaged();
+        $this->removeParts($previous, array_map(fn (string $file): string => $this->besidePath($path, $file), $parts));
         $this->info($written.' URL(s) written across '.count($parts).' file(s), indexed by ['.$path.'].');
         $this->reportUnaddressed();
 
@@ -303,14 +309,78 @@ final class SitemapCommand extends Command
      */
     private function writePart(string $path, int $number, array $entries): string
     {
-        $directory = dirname($path);
         $name = pathinfo($path, PATHINFO_FILENAME).'-'.$number;
         $extension = pathinfo($path, PATHINFO_EXTENSION);
         $file = $name.($extension === '' ? '' : '.'.$extension);
 
-        $this->stage(($directory === '.' ? '' : $directory.'/').$file, $this->render($entries));
+        $this->stage($this->besidePath($path, $file), $this->render($entries));
 
         return $file;
+    }
+
+    /**
+     * A file name in the directory --path is in, the way the parts are written.
+     */
+    private function besidePath(string $path, string $file): string
+    {
+        $directory = dirname($path);
+
+        return ($directory === '.' ? '' : $directory.'/').$file;
+    }
+
+    /**
+     * The parts the index at --path names, as files beside it: the parts an earlier run wrote.
+     *
+     * Only a `<loc>` whose file name follows this command's own scheme for that path counts, so
+     * an index somebody else wrote there, or a part it names under another name, gives nothing to
+     * remove. A file at --path that is no index names no parts.
+     *
+     * @return list<string>
+     */
+    private function partsNamedBy(string $path): array
+    {
+        $contents = is_file($path) ? (string) file_get_contents($path) : '';
+
+        if (! str_contains($contents, '<sitemapindex')) {
+            return [];
+        }
+
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+        $scheme = '/^'.preg_quote(pathinfo($path, PATHINFO_FILENAME), '/').'-\d+'
+            .($extension === '' ? '' : '\.'.preg_quote($extension, '/')).'$/';
+
+        preg_match_all('#<loc>([^<]*)</loc>#', $contents, $locations);
+
+        $parts = [];
+
+        foreach ($locations[1] as $location) {
+            $file = basename((string) parse_url(htmlspecialchars_decode($location, ENT_QUOTES | ENT_XML1), PHP_URL_PATH));
+
+            if (preg_match($scheme, $file) === 1) {
+                $parts[] = $this->besidePath($path, $file);
+            }
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Remove the parts an earlier run wrote that this run no longer does.
+     *
+     * Called once every file of the run is in place: a part the replaced index named and the new
+     * set does not would otherwise stay public with the addresses of that earlier run. A part
+     * that is already gone is left as it is.
+     *
+     * @param  list<string>  $previous
+     * @param  list<string>  $current
+     */
+    private function removeParts(array $previous, array $current): void
+    {
+        foreach (array_diff($previous, $current) as $file) {
+            if (is_file($file)) {
+                unlink($file);
+            }
+        }
     }
 
     /**

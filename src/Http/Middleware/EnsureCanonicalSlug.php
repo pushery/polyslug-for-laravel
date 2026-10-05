@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Http\Middleware;
 
+use BackedEnum;
 use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
@@ -15,6 +16,7 @@ use Illuminate\Routing\UrlGenerator;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Events\SlugRedirected;
 use Polyslug\Support\ConfigChoice;
+use Polyslug\Support\StatusSetting;
 use Polyslug\Support\SuccessorChain;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -87,7 +89,7 @@ final class EnsureCanonicalSlug
             // Thrown directly rather than through abort(): that helper is a Foundation-only
             // global, and it does exactly this — Application::abort() throws an HttpException
             // for any non-404 status.
-            throw new HttpException($this->configuredStatus('polyslug.gone.status', 410));
+            throw new HttpException(StatusSetting::error('polyslug.gone.status', 410));
         }
 
         if ($terminal instanceof Response) {
@@ -95,7 +97,7 @@ final class EnsureCanonicalSlug
         }
 
         if ($retired) {
-            throw new HttpException($this->configuredStatus('polyslug.retired.status', 410));
+            throw new HttpException(StatusSetting::error('polyslug.retired.status', 410));
         }
 
         $url = $this->canonicalUrl($request, $route, $locale);
@@ -104,7 +106,7 @@ final class EnsureCanonicalSlug
         // on, and the way to reach one would be a canonical path that itself ends in a slash. It
         // cannot: the router trims a route's URI when it registers it (Router::prefix()), so
         // `pages/{page}/` and `/pages/{page}/` both store `pages/{page}`.
-        $status = $this->status();
+        $status = StatusSetting::redirect('polyslug.redirect.status', 301);
         $this->recordRedirect($route, $locale, $url, $status);
 
         return Container::getInstance()->make(Redirector::class)->to($url, $status);
@@ -189,6 +191,12 @@ final class EnsureCanonicalSlug
             $param = $config->get('polyslug.locale.route_param', 'locale');
             $value = $route->parameter(is_string($param) ? $param : 'locale');
 
+            // A route whose signature types the parameter as a backed enum receives the case:
+            // SubstituteBindings runs first and binds it implicitly. Its value is the segment.
+            if ($value instanceof BackedEnum) {
+                $value = $value->value;
+            }
+
             if (is_string($value) && $value !== '') {
                 return $value;
             }
@@ -201,13 +209,6 @@ final class EnsureCanonicalSlug
         $locale = Container::getInstance()->make(ConfigRepository::class)->get('app.locale');
 
         return is_string($locale) ? $locale : '';
-    }
-
-    private function status(): int
-    {
-        $status = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.redirect.status', 301);
-
-        return is_int($status) ? $status : 301;
     }
 
     /**
@@ -298,7 +299,7 @@ final class EnsureCanonicalSlug
 
             return Container::getInstance()->make(Redirector::class)->to(
                 $this->withRequestQuery($request, $this->successorUrl($route, $name, $visible, $locale)),
-                $this->configuredStatus('polyslug.gone.redirect_status', 301),
+                StatusSetting::redirect('polyslug.gone.redirect_status', 301),
             );
         }
 
@@ -378,13 +379,6 @@ final class EnsureCanonicalSlug
         }
 
         return $parameters;
-    }
-
-    private function configuredStatus(string $key, int $default): int
-    {
-        $status = Container::getInstance()->make(ConfigRepository::class)->get($key, $default);
-
-        return is_int($status) ? $status : $default;
     }
 
     private function recordRedirect(Route $route, string $locale, string $url, int $status): void

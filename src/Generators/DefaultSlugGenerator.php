@@ -46,6 +46,14 @@ final class DefaultSlugGenerator implements SlugGenerator
             $base = ($request->identity)();
         }
 
+        // An empty slug on an id-based model is no name: its URL is the token alone,
+        // `_{encodedId}`, and the token tells every such record apart. So it is not held unique,
+        // and the store is not asked: the first empty slug would read as taken, and the second
+        // record would get the counter suffix `-2`, an address made of a suffix.
+        if ($base === '') {
+            return '';
+        }
+
         if (! $config->unique) {
             // `unique: false` opts out of BOTH the disambiguating suffix and the uniqueness
             // guarantee: records may share a slug, because a non-idLess URL (slug_id) resolves
@@ -109,7 +117,7 @@ final class DefaultSlugGenerator implements SlugGenerator
     {
         $room = $this->columnLength() - mb_strlen($suffix);
 
-        return (mb_strlen($base) > $room ? rtrim(mb_substr($base, 0, max(0, $room)), $separator) : $base).$suffix;
+        return (mb_strlen($base) > $room ? rtrim($this->cut($base, max(0, $room)), $separator) : $base).$suffix;
     }
 
     private function slugify(string $source, PolyslugConfig $config): string
@@ -125,7 +133,7 @@ final class DefaultSlugGenerator implements SlugGenerator
         $limit = min($config->maxLength ?? PHP_INT_MAX, $this->columnLength());
 
         if (mb_strlen($slug) > $limit) {
-            $slug = trim(mb_substr($slug, 0, $limit), $config->separator);
+            $slug = trim($this->cut($slug, $limit), $config->separator);
         }
 
         if ($slug === '') {
@@ -181,15 +189,50 @@ final class DefaultSlugGenerator implements SlugGenerator
      * index then behaves identically on PostgreSQL (Unicode lower()) and SQLite
      * (ASCII-only lower()), which would otherwise disagree on non-ASCII letters.
      * Assumes NFC-normalized input.
+     *
+     * A combining mark is part of the letter it follows: the vowel signs and the virama of the
+     * Indic scripts, the tone marks of Thai, the harakat of Arabic. Read as neither a letter nor a
+     * number, they turned `नमस्ते` into `नमस-त`. A mark stays where it follows a letter, a number or
+     * another mark, and goes where it has nothing to sit on. The variation selectors and the
+     * enclosing marks go everywhere: they choose how a character is drawn, an emoji or a keycap,
+     * and spell nothing, and a selector left behind by a removed emoji would be an invisible
+     * character in an address.
      */
     private function slugifyNative(string $source, string $separator): string
     {
         $lower = mb_strtolower($source);
+        $lower = preg_replace('/[\x{FE00}-\x{FE0F}\x{E0100}-\x{E01EF}\p{Me}]+/u', '', $lower) ?? '';
+        $lower = preg_replace('/(?<![\p{L}\p{N}\p{M}])\p{M}+/u', '', $lower) ?? '';
 
-        // Collapse every run of non-(letter/number) into a single separator.
-        $slug = preg_replace('/[^\p{L}\p{N}]+/u', $separator, $lower) ?? '';
+        // Collapse every run of what is neither a letter, a number nor an attached mark into a
+        // single separator.
+        $slug = preg_replace('/[^\p{L}\p{M}\p{N}]+/u', $separator, $lower) ?? '';
 
         return trim($slug, $separator);
+    }
+
+    /**
+     * The longest start of $slug, in whole grapheme clusters, that is at most $limit characters.
+     *
+     * A cut by characters alone can part a letter from the vowel sign, the virama or the tone
+     * mark that follows it, and a native slug keeps those. On a slug of one-character clusters,
+     * every ASCII slug among them, it is the cut mb_substr() makes.
+     */
+    private function cut(string $slug, int $limit): string
+    {
+        preg_match_all('/\X/u', $slug, $clusters);
+
+        $kept = '';
+
+        foreach ($clusters[0] as $cluster) {
+            if (mb_strlen($kept.$cluster) > $limit) {
+                break;
+            }
+
+            $kept .= $cluster;
+        }
+
+        return $kept;
     }
 
     /**

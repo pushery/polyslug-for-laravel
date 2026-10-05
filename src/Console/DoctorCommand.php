@@ -20,6 +20,7 @@ use Polyslug\Encoders\RandomTokenEncoder;
 use Polyslug\Encoders\SequentialTokenEncoder;
 use Polyslug\Models\PolyslugShortLink;
 use Polyslug\Models\PolyslugSlug;
+use Polyslug\Support\StatusSetting;
 use Polyslug\Support\TokenAlphabet;
 use ReflectionMethod;
 use Throwable;
@@ -30,12 +31,21 @@ final class DoctorCommand extends Command
     protected $signature = 'polyslug:doctor';
 
     /** @var string */
-    protected $description = 'Diagnose the Polyslug setup: encoder config, token-space headroom, the uniqueness-guaranteeing indexes, and models that never narrowed their resolution gate.';
+    protected $description = 'Diagnose the Polyslug setup: encoder config, model replacements, status settings, token-space headroom, the uniqueness-guaranteeing indexes, and models that never narrowed their resolution gate.';
+
+    /**
+     * The models a host can replace through polyslug.models: the keys the package itself asks for.
+     *
+     * @var list<class-string<PolyslugSlug|PolyslugShortLink>>
+     */
+    private const array REPLACEABLE_MODELS = [PolyslugSlug::class, PolyslugShortLink::class];
 
     public function handle(): int
     {
         $encodersOk = $this->checkEncoders();
         $schemesOk = $this->checkTokenSchemes();
+        $modelsOk = $this->checkModels();
+        $statusesOk = $this->checkStatuses();
         $indexesOk = $this->checkIndexes();
 
         // Only once BOTH have passed, because reporting how full a token space is means
@@ -49,7 +59,7 @@ final class DoctorCommand extends Command
         $gatesOk = $this->checkResolutionGates();
         $this->checkUrlResolver();
 
-        if (! $encodersOk || ! $schemesOk || ! $indexesOk || ! $gatesOk) {
+        if (! $encodersOk || ! $schemesOk || ! $modelsOk || ! $statusesOk || ! $indexesOk || ! $gatesOk) {
             $this->error('Polyslug: one or more checks failed.');
 
             return self::FAILURE;
@@ -419,6 +429,118 @@ final class DoctorCommand extends Command
 
         if ($ok) {
             $this->line('  ✓ encoder and legacy decoders are valid.');
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Every entry of polyslug.models, held to the rule the seam applies when it reads one.
+     *
+     * Replaceable::model() ignores an entry it cannot obey and takes the package class, so a
+     * request keeps working and the host loses the customization without a sign: the scopes,
+     * casts and relations of the subclass never run. An ignored entry therefore fails this check,
+     * as a misspelled encoder class does. The verdict is the seam's own answer, model() asked for
+     * the key, so this check and the class the package really uses cannot disagree; the reason
+     * only explains the verdict. A key the package never asks for is an entry nothing reads.
+     */
+    private function checkModels(): bool
+    {
+        $models = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.models', []);
+
+        if (! is_array($models) || $models === []) {
+            return true;
+        }
+
+        $ok = true;
+
+        foreach ($models as $key => $configured) {
+            $shown = is_string($configured) ? $configured : get_debug_type($configured);
+
+            if (! in_array($key, self::REPLACEABLE_MODELS, true)) {
+                $this->line(sprintf(
+                    '  ✗ polyslug.models: [%s] is not a model Polyslug replaces, so its entry [%s] is never read. The keys are [%s].',
+                    $key,
+                    $shown,
+                    implode('] and [', self::REPLACEABLE_MODELS),
+                ));
+                $ok = false;
+
+                continue;
+            }
+
+            $used = $key::model();
+
+            if ($used === $configured) {
+                continue;
+            }
+
+            if (! is_string($configured)) {
+                $reason = 'is not a class name';
+            } elseif (! class_exists($configured)) {
+                $reason = 'does not exist';
+            } elseif (! is_subclass_of($configured, $key)) {
+                $reason = 'does not extend it';
+            } else {
+                $reason = 'cannot be instantiated';
+            }
+
+            $this->line(sprintf('  ✗ polyslug.models: [%s] for [%s] %s, so Polyslug uses [%s].', $shown, $key, $reason, $used));
+            $ok = false;
+        }
+
+        if ($ok) {
+            $this->line('  ✓ model replacements are in use.');
+        }
+
+        return $ok;
+    }
+
+    /**
+     * The four status settings, each held to the kind of status it takes.
+     *
+     * A value of the wrong kind, or one that is no integer, is not obeyed: the canonical middleware
+     * sends the default instead (see StatusSetting), which keeps every request answering. It is
+     * still a setting the host made that has no effect, and this line is where that is said.
+     */
+    private function checkStatuses(): bool
+    {
+        $config = Container::getInstance()->make(ConfigRepository::class);
+        $ok = true;
+
+        foreach (StatusSetting::ALL as $setting) {
+            $value = $config->get($setting['key']);
+
+            // An unset value is the default, which is of its kind by definition.
+            $accepted = $value === null || ($setting['redirect'] ? StatusSetting::isRedirect($value) : StatusSetting::isError($value));
+
+            if ($accepted) {
+                continue;
+            }
+
+            if (! is_int($value)) {
+                $reason = 'not an integer';
+            } elseif ($setting['redirect']) {
+                $reason = 'not a redirect status (301, 302, 303, 307 or 308)';
+            } else {
+                $reason = 'not a client error status (400 to 499)';
+            }
+
+            $this->line(sprintf(
+                '  ✗ %s: [%s] is %s, so Polyslug %s %d.',
+                $setting['key'],
+                // A string in quotes, so `'302'` reads as the string it is; a number as written;
+                // anything else by its type.
+                is_string($value) ? "'".$value."'" : (is_int($value) || is_float($value) ? (string) $value : get_debug_type($value)),
+                $reason,
+                $setting['redirect'] ? 'redirects with' : 'answers with',
+                $setting['default'],
+            ));
+            $ok = false;
+        }
+
+        if ($ok) {
+            $this->line('  ✓ status settings are in range.');
         }
 
         return $ok;
