@@ -29,7 +29,8 @@
     "support": {
         "issues": "https://github.com/pushery/polyslug-for-laravel/issues",
         "source": "https://github.com/pushery/polyslug-for-laravel",
-        "docs": "https://docs.pushery.com/polyslug-for-laravel/"
+        "docs": "https://docs.pushery.com/polyslug-for-laravel/",
+        "security": "https://github.com/pushery/polyslug-for-laravel/security/policy"
     },
     "require": {
         "php": "^8.4",

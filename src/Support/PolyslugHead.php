@@ -159,7 +159,8 @@ final class PolyslugHead
      * one site and en_GB to another, and asserting either would announce a regional
      * variant nobody configured. What is new is that a consumer can now name the pairs,
      * under polyslug.open_graph.locale_map. A locale that already carries a territory —
-     * "pt_BR", "de-AT" — needs no entry and only has its separator normalized.
+     * "pt_BR", "de-AT" — needs no entry: its separator and its case are normalized, so
+     * "pt-br" is announced as "pt_BR".
      */
     private static function openGraphLocale(string $locale): ?string
     {
@@ -172,10 +173,13 @@ final class PolyslugHead
             : str_replace('-', '_', $locale);
 
         // ISO 639 language, then an ISO 3166-1 alpha-2 or UN M.49 numeric region. Checked
-        // rather than assumed, because a mapped value is a consumer's string too.
-        return preg_match('/^[A-Za-z]{2,3}_([A-Za-z]{2}|[0-9]{3})$/D', $candidate) === 1
-            ? $candidate
-            : null;
+        // rather than assumed, because a mapped value is a consumer's string too, and written
+        // the way both standards write them: the language in lower case, the region in upper.
+        if (preg_match('/^([A-Za-z]{2,3})_([A-Za-z]{2}|[0-9]{3})$/D', $candidate, $parts) !== 1) {
+            return null;
+        }
+
+        return strtolower($parts[1]).'_'.strtoupper($parts[2]);
     }
 
     /**

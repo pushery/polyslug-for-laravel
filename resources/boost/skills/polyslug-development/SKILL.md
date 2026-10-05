@@ -357,7 +357,8 @@ returning whichever row sorts first.
   sluggable model at a time.
 - Analytics: `polyslug.analytics.enabled` fires a `SlugRedirected` event on each self-heal.
 - Diagnostics: `php artisan polyslug:doctor` checks the encoder and token configuration, the
-  uniqueness indexes and the URL resolver, and reports every type registered in
+  model replacements in `polyslug.models`, the four status settings, the uniqueness indexes and
+  the URL resolver, and reports every type registered in
   `polyslug.types` that still resolves through the open default `polyslugResolveQuery()`, the
   types on which any slug resolves to any row.
 

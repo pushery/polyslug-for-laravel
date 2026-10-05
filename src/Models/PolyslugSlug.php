@@ -14,9 +14,9 @@ use Polyslug\Models\Concerns\Replaceable;
 /**
  * One slug for a sluggable model in one locale and uniqueness scope. Among the rows that
  * enforce uniqueness (enforce_unique, which a model declared `unique: false` or `slugless`
- * does not set), at most one per (sluggable_type, locale, scope, case-insensitive slug) may be
- * current and not deleted; superseded slugs stay as history (is_current = false) so old URLs
- * can 301.
+ * does not set, nor does an empty slug, whose URL is the token alone), at most one per
+ * (sluggable_type, locale, scope, case-insensitive slug) may be current and not deleted;
+ * superseded slugs stay as history (is_current = false) so old URLs can 301.
  *
  * @property int $id
  * @property string $sluggable_type

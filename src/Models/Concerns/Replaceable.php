@@ -7,6 +7,7 @@ namespace Polyslug\Models\Concerns;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
+use ReflectionClass;
 
 /**
  * The seam through which a host replaces a Polyslug model with its own subclass.
@@ -23,9 +24,10 @@ trait Replaceable
     /**
      * The class Polyslug uses for this model: the host's configured subclass, or this class.
      *
-     * A configured class that does not exist, or does not extend this one, is ignored rather than
-     * obeyed. Obeying it would fail in the middle of a request or a queued job, long after boot,
-     * and this class loses the least.
+     * A configured class that does not exist, does not extend this one, or cannot be instantiated,
+     * such as an abstract one, is ignored rather than obeyed. Obeying it would fail in the middle
+     * of a request or a queued job, long after boot, and this class loses the least. The class is
+     * reflected only when a subclass is configured, so the default answer costs nothing more.
      *
      * The container rather than `config()`: the helper belongs to laravel/framework, which this
      * package does not require. Outside an application, where nothing is bound, the answer is
@@ -46,7 +48,9 @@ trait Replaceable
 
         $configured = is_array($models) ? ($models[static::class] ?? null) : null;
 
-        return is_string($configured) && is_subclass_of($configured, static::class)
+        return is_string($configured)
+            && is_subclass_of($configured, static::class)
+            && new ReflectionClass($configured)->isInstantiable()
             ? $configured
             : static::class;
     }

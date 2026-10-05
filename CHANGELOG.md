@@ -4,6 +4,24 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1] - 2026-10-05
+
+### 🐛 Fixed
+
+- **A smaller sitemap run removes the parts an earlier run wrote beside its index.** With `--path`, a set that shrank from three parts to two left `sitemap-3.xml` in place, and a set that fit one file again left every part, so the addresses of the earlier run stayed public. Once every new file is in place, the parts the replaced index named and the new set does not are removed. A file that index did not name stays, and a run that fails removes nothing.
+- **`polyslug.canonical` reads a `{locale}` the route binds to a backed enum.** A route whose signature types the locale as a string-backed enum receives the case, which `locale.source = 'route'` did not read, so the request fell back to the application locale and a canonical German address redirected to the English slug under the German prefix. The case now counts as its value.
+- **A native slug keeps the combining marks that spell its words.** `unicode: 'native'` kept letters and numbers only, so vowel signs, the virama, Thai tone marks and Arabic harakat were cut out and replaced by the separator: `नमस्ते दुनिया` became `नमस-त-द-न-य`. A mark now stays where it follows a letter, a number or another mark, the variation selectors and enclosing marks of an emoji or a keycap are still dropped, and a slug is shortened between grapheme clusters only. A slug written before keeps its address until its source changes or `setSlug()` writes it again, and the earlier address then redirects to the new one.
+- **A status setting of the wrong kind no longer breaks the response it configures.** `redirect.status` and `gone.redirect_status` were used as given, so a status such as `200` or `410` made every stale address and every redirect to a successor end in a 500, because a redirect cannot carry it; `gone.status` and `retired.status` set to `200` answered a withdrawn record like a live page. A redirect now takes `301`, `302`, `303`, `307` or `308`, an error answer a status from `400` to `499`, any other value gives the default, and `polyslug:doctor` names it and fails.
+- **`polyslug.models` ignores an abstract subclass instead of failing every query through it.** The seam took any configured class that extends the package model, so an abstract one was obeyed, and every slug query and every new row then threw `Cannot instantiate abstract class` in the middle of a request. It now falls back to the package class, like an entry for a class that does not exist.
+- **`polyslug:doctor` checks `polyslug.models`.** The seam ignores an entry it cannot obey, so requests keep working while the subclass's scopes, casts and relations never run, and nothing said so: a key with a leading backslash or in another case, a list instead of a map, or a class that does not exist, does not extend the package model or is abstract. The doctor now names each such entry with the class Polyslug uses instead, and the run fails.
+- **`og:locale` is written in the case Open Graph uses.** Only the separator was normalized, so a locale taken from a path such as `pt-br` was announced as `pt_br`, and a mapped `EN-us` as `EN_us`. The language is now written in lower case and the territory in upper, `pt_BR` and `en_US`; a numeric region such as `es_419` stays as it is.
+- **Every record whose title makes no slug gets the token alone as its address.** The empty slug was held unique, so only the first record with an emoji-only or punctuation-only title had `_{encodedId}`; the second got the slug `-2` and the address `-2_{encodedId}`, the third `-3`. An empty slug is no name and is no longer held unique, so each such record keeps `_{encodedId}`. A slug written before keeps its address until its source changes or `setSlug()` writes it again, and the earlier address then redirects to the new one.
+
+### 📚 Documentation
+
+- **The README lists the features without an emoji in front of each.** Every entry opens with its bold lead-in, and the wording is unchanged.
+- **The package manifest links the security policy under `support.security`**, so the Packagist page names where to report a vulnerability privately.
+
 ## [0.22.0] - 2026-10-05
 
 ### 🔧 Changed
