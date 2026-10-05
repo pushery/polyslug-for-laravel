@@ -17,7 +17,13 @@ final readonly class PolyslugResolver
 {
     public function __construct(private ConfigRepository $config) {}
 
-    public function resolve(string $type, string $value): ?Model
+    /**
+     * $field and $withTrashed carry what a route declares for its parameter, a binding field
+     * (`{polyslug:uuid}`) and `->withTrashed()`, and they are applied the way implicit route
+     * binding applies them: deleted records are admitted only for a model that can be
+     * soft-deleted.
+     */
+    public function resolve(string $type, string $value, ?string $field = null, bool $withTrashed = false): ?Model
     {
         $types = $this->config->get('polyslug.types', []);
         $class = is_array($types) && isset($types[$type]) ? $types[$type] : null;
@@ -26,6 +32,10 @@ final readonly class PolyslugResolver
             return null;
         }
 
-        return (new $class)->resolveRouteBinding($value);
+        $model = new $class;
+
+        return $withTrashed && $model::isSoftDeletable()
+            ? $model->resolveSoftDeletableRouteBinding($value, $field)
+            : $model->resolveRouteBinding($value, $field);
     }
 }

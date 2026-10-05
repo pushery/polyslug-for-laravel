@@ -112,6 +112,10 @@ final readonly class PolyslugConfig
             throw MisconfiguredPolyslug::sluglessExcludesMaxLength();
         }
 
+        if ($this->maxLength !== null && $this->maxLength < 1) {
+            throw MisconfiguredPolyslug::maxLengthMustBePositive($this->maxLength);
+        }
+
         if ($this->slugless && $this->reserved !== []) {
             throw MisconfiguredPolyslug::sluglessExcludesReserved();
         }

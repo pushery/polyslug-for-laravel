@@ -1,6 +1,7 @@
 # Contributing
 
-Thanks for considering a contribution — issues and pull requests are both welcome.
+Thanks for considering a contribution. Issues and pull requests are both welcome, and the
+section on pull requests says how a change sent here reaches a release.
 
 ## Reporting an issue
 
@@ -8,6 +9,11 @@ Use the GitHub issue templates (bug report / feature request). Include the packa
 version and a minimal reproduction, and never paste secrets or credentials.
 
 ## Pull requests
+
+This repository is a mirror of the released tree, and every release replaces its contents
+with the tree it releases. A pull request is therefore not merged here: a maintainer carries
+an accepted change into the development repository, and it reaches this mirror with the
+next release.
 
 - Keep the public API stable, or call out the break explicitly.
 - Describe the behavior change and the case that proves it. This repository does not

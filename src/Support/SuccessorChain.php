@@ -17,10 +17,10 @@ use Polyslug\Contracts\Sluggable;
 final class SuccessorChain
 {
     /**
-     * How many successors one answer follows. A longer chain ends at the last link reached, and
-     * that address carries the visitor on.
+     * How many successors one answer follows to find the end of a chain. A chain whose end lies
+     * further away has no answer, and its record is served where it is.
      */
-    public const int HOPS = 8;
+    public const int HOPS = 32;
 
     /**
      * The end of the chain of successors that starts at $value, as far as the requester may see
@@ -31,6 +31,11 @@ final class SuccessorChain
      * see ends the chain at the one before it. A chain that comes back to a record it already
      * passed would redirect between those addresses forever. Such a ring, a record that names
      * itself included, is no successor at all, and the record is served as one nobody superseded.
+     *
+     * Only the end is an answer, never a record in the middle. A record in the middle redirects
+     * again, and the request that follows starts over without knowing where the visitor came
+     * from, so a ring longer than one answer reaches would send them round it for good. A chain
+     * whose end is not reached within HOPS successors is therefore treated like a ring.
      */
     public static function lastVisible(Sluggable $value): ?Sluggable
     {
@@ -38,11 +43,10 @@ final class SuccessorChain
         $current = $value;
 
         for ($hop = 0; $hop < self::HOPS; $hop++) {
-            $successor = $current->polyslugSupersededBy();
-            $visible = $successor instanceof Sluggable ? $successor->polyslugResolveSelf() : null;
+            $visible = self::visibleSuccessor($current);
 
             if (! $visible instanceof Sluggable) {
-                break;
+                return $current === $value ? null : $current;
             }
 
             foreach ($passed as $earlier) {
@@ -55,6 +59,19 @@ final class SuccessorChain
             $current = $visible;
         }
 
-        return $current === $value ? null : $current;
+        // HOPS successors followed. The last of them is the end only if nothing the requester may
+        // see supersedes it in turn.
+        return self::visibleSuccessor($current) instanceof Sluggable ? null : $current;
+    }
+
+    /**
+     * The successor of $record as the resolution gate returns it, or null when it has none the
+     * requester may see.
+     */
+    private static function visibleSuccessor(Sluggable $record): ?Sluggable
+    {
+        $successor = $record->polyslugSupersededBy();
+
+        return $successor instanceof Sluggable ? $successor->polyslugResolveSelf() : null;
     }
 }

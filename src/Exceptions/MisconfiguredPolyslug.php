@@ -128,6 +128,17 @@ final class MisconfiguredPolyslug extends RuntimeException
         );
     }
 
+    public static function maxLengthMustBePositive(int $maxLength): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot set `maxLength` to ['.$maxLength.']: '
+            .'a limit below 1 is no length a slug can have, and it used to shorten every slug '
+            .'without a word: 0 left each one empty, so every URL fell back to the encoded id alone, and a '
+            .'negative limit cut that many characters off the end of each. '
+            .'Set a length of at least 1, or drop `maxLength` to keep the length of the column.'
+        );
+    }
+
     public static function separatorIsNotUrlSafe(string $separator): self
     {
         return new self(

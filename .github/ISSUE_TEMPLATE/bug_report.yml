@@ -17,7 +17,7 @@ body:
     id: reproduction
     attributes:
       label: Steps to reproduce
-      description: The smallest set of steps that triggers the problem. A failing test or a minimal repository is ideal.
+      description: The smallest set of steps that triggers the problem. A failing test in your application, or a minimal repository, is ideal.
     validations:
       required: true
   - type: textarea
@@ -37,7 +37,7 @@ body:
     id: package-version
     attributes:
       label: Package version
-      placeholder: e.g. v0.1.0
+      description: "The version `composer show pushery/polyslug-for-laravel` reports."
     validations:
       required: true
   - type: input

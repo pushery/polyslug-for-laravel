@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Polyslug\Concerns;
 
+use BackedEnum;
 use Closure;
 use DateTimeInterface;
 use Illuminate\Container\Container;
@@ -71,6 +72,15 @@ trait HasPolyslug
      * 1,296x the one that was full.
      */
     private const int POLYSLUG_SHORT_LINK_ATTEMPTS = 8;
+
+    /**
+     * How many keys polyslugResolveMany() reads in one query.
+     *
+     * Eloquent writes integer keys into the SQL, but it binds every other key, and PostgreSQL and
+     * MySQL refuse a statement past 65,535 parameters. A thousand keeps a UUID or ULID set of any
+     * size inside that, and a set of up to a thousand costs the one query it always did.
+     */
+    private const int POLYSLUG_RESOLVE_SLICE = 1_000;
 
     /**
      * Whether the resolution in progress admits soft-deleted records: set for the length of a
@@ -872,12 +882,13 @@ trait HasPolyslug
     }
 
     /**
-     * Resolve many route values in a fixed number of queries.
+     * Resolve many route values in a few queries rather than one per value.
      *
      * Each value is read the way a route binding reads it, `slug_TOKEN` or the bare token, and
      * the bare token is accepted for every model: it is the public identifier an API passes
-     * around. All tokens are decoded in one query when the encoder can batch
-     * (BulkIdentityDecoder), and the records are read in one query through the resolution gate.
+     * around. The tokens are decoded in one query per thousand tokens when the encoder can batch
+     * (BulkIdentityDecoder), and the records are read through the resolution gate in one query
+     * per thousand keys.
      * A value that resolves to nothing is absent from the result. A slug-only model has no token
      * to batch on, and resolves its values one at a time.
      *
@@ -927,11 +938,13 @@ trait HasPolyslug
         $keys = $model->polyslugDecodeMany(array_values(array_unique(array_merge(...array_values($candidates)))));
         $records = [];
 
-        foreach ($model->polyslugResolveQuery($model->polyslugBindingQuery())->whereKey(array_values($keys))->get() as $record) {
-            // The gate is free to answer with a query for another model, as polyslugResolveByKey()
-            // says; such a row is not this model's record.
-            if ($record instanceof static) {
-                $records[$record->polyslugKeyString()] = $record;
+        foreach (array_chunk(array_values(array_unique($keys)), self::POLYSLUG_RESOLVE_SLICE) as $slice) {
+            foreach ($model->polyslugResolveQuery($model->polyslugBindingQuery())->whereKey($slice)->get() as $record) {
+                // The gate is free to answer with a query for another model, as polyslugResolveByKey()
+                // says; such a row is not this model's record.
+                if ($record instanceof static) {
+                    $records[$record->polyslugKeyString()] = $record;
+                }
             }
         }
 
@@ -1372,7 +1385,8 @@ trait HasPolyslug
      *
      * Answer with a string (`'noindex, follow'`) or a list (`['noindex', 'follow']`);
      * both are normalized to the same tag, so the rendered output cannot depend on
-     * which spelling was typed.
+     * which spelling was typed. A list may also hold string-backed enum cases, such as
+     * laravel/head's `RobotsRule::NoIndex`; each one counts as its value.
      *
      * The answer must still PREVENT INDEXING — it needs `noindex` or `none`. This is
      * the branch for a page the gate hides, so a permissive directive would contradict
@@ -1381,7 +1395,7 @@ trait HasPolyslug
      * indexable by default. Both are refused with MisconfiguredPolyslug rather than
      * silently un-gating the page.
      *
-     * @return string|list<string>
+     * @return string|list<string|BackedEnum>
      */
     public function polyslugRobotsDirective(?string $locale = null): string|array
     {

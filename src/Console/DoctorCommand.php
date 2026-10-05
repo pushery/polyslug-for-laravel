@@ -7,17 +7,19 @@ namespace Polyslug\Console;
 use Illuminate\Console\Command;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use InvalidArgumentException;
 use Polyslug\Concerns\HasPolyslug;
 use Polyslug\Contracts\IdentityEncoder;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\TokenScheme;
 use Polyslug\Encoders\RandomTokenEncoder;
 use Polyslug\Encoders\SequentialTokenEncoder;
+use Polyslug\Models\PolyslugShortLink;
+use Polyslug\Models\PolyslugSlug;
 use Polyslug\Support\TokenAlphabet;
 use ReflectionMethod;
 use Throwable;
@@ -169,6 +171,11 @@ final class DoctorCommand extends Command
      * All three are built even when the application uses one, because a wrong value in an
      * unused section is still wrong and costs nothing to name — and "unused" is a property
      * of today's config, not of tomorrow's.
+     *
+     * Anything a build throws is reported, not only a refused length or alphabet. A scheme
+     * name outside `random` and `sequential` is refused by the binding with a different
+     * exception, and a scheme a host binds itself may throw whatever it throws; a check that
+     * ended the run there would hide the fault it exists to name, and every check after it.
      */
     private function checkTokenSchemes(): bool
     {
@@ -177,7 +184,7 @@ final class DoctorCommand extends Command
         foreach ([RandomTokenEncoder::class, SequentialTokenEncoder::class, TokenScheme::class] as $abstract) {
             try {
                 Container::getInstance()->make($abstract);
-            } catch (InvalidArgumentException $exception) {
+            } catch (Throwable $exception) {
                 $this->line(sprintf('  ✗ %s', $exception->getMessage()));
                 $ok = false;
             }
@@ -211,24 +218,29 @@ final class DoctorCommand extends Command
     private function checkTokenSpace(): void
     {
         $identity = $this->identityAlphabet();
+
+        // Short links are counted where the short-link model in use keeps them, which a host can
+        // move with polyslug.models; identity tokens always live on the default connection.
+        $shortLinks = PolyslugShortLink::model();
+        $shortLinkModel = new $shortLinks;
         $spaces = [
-            'identity tokens' => ['polyslug_tokens', $identity],
-            'short links' => ['polyslug_short_links', Container::getInstance()->make(TokenScheme::class)->alphabet()],
+            'identity tokens' => [DB::connection(), 'polyslug_tokens', $identity],
+            'short links' => [$shortLinkModel->getConnection(), $shortLinkModel->getTable(), Container::getInstance()->make(TokenScheme::class)->alphabet()],
         ];
 
-        foreach ($spaces as $label => [$table, $alphabet]) {
-            if (! Schema::hasTable($table)) {
+        foreach ($spaces as $label => [$connection, $table, $alphabet]) {
+            if (! $connection->getSchemaBuilder()->hasTable($table)) {
                 $this->line(sprintf('  ! [%s] is missing — run the migrations.', $table));
 
                 continue;
             }
 
-            $this->reportFill($label, $alphabet, $this->tokenCounts($table));
+            $this->reportFill($label, $alphabet, $this->tokenCounts($connection, $table));
         }
 
         if (Schema::hasTable('polyslug_tokens')) {
             foreach ($this->modelTokenSpaces($identity) as [$types, $alphabet]) {
-                $this->reportFill('identity tokens of '.implode(', ', $types), $alphabet, $this->tokenCounts('polyslug_tokens', $types));
+                $this->reportFill('identity tokens of '.implode(', ', $types), $alphabet, $this->tokenCounts(DB::connection(), 'polyslug_tokens', $types));
             }
         }
 
@@ -351,10 +363,10 @@ final class DoctorCommand extends Command
      * @param  list<string>|null  $types  only the rows of these key types, when given
      * @return array<int, int>
      */
-    private function tokenCounts(string $table, ?array $types = null): array
+    private function tokenCounts(Connection $connection, string $table, ?array $types = null): array
     {
         $counts = [];
-        $query = DB::table($table)->selectRaw('length(token) as token_length, count(*) as total')->groupByRaw('length(token)');
+        $query = $connection->table($table)->selectRaw('length(token) as token_length, count(*) as total')->groupByRaw('length(token)');
 
         if ($types !== null) {
             $query->whereIn('key_type', $types);
@@ -418,12 +430,18 @@ final class DoctorCommand extends Command
      * A name alone is not the guarantee: an index of the same name that is not unique, left by a
      * hand-made rebuild or a rollback that failed halfway, lets two current slugs collide while
      * the name is still there.
+     *
+     * Read on the connection and table of the slug model in use, which is the package's own
+     * unless polyslug.models replaces it: every slug is written there, so that is where the
+     * indexes have to hold.
      */
     private function checkIndexes(): bool
     {
+        $slugs = PolyslugSlug::model();
+        $model = new $slugs;
         $unique = [];
 
-        foreach (Schema::getConnection()->getSchemaBuilder()->getIndexes('polyslug_slugs') as $index) {
+        foreach ($model->getConnection()->getSchemaBuilder()->getIndexes($model->getTable()) as $index) {
             $unique[$index['name']] = $index['unique'];
         }
 
