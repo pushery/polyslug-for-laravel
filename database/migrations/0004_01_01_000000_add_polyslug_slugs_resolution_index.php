@@ -14,12 +14,12 @@ use Illuminate\Support\Facades\Schema;
  * Migration 0006 rebuilds this index with the slug ahead of the scope, because with the scope
  * third a resolution that names none could not seek on the slug. Until now `lower(slug)`
  * appeared in exactly one index — the
- * PARTIAL unique index that carries the one-current-slug guarantee — and every resolution was a
+ * partial unique index that carries the one-current-slug guarantee — and every resolution was a
  * full table scan.
  *
- * THE CAUSE IS STATISTICS, NOT REACHABILITY, and that distinction is why the fix is a second
+ * The cause is statistics, not reachability, and that distinction is why the fix is a second
  * index rather than a rewritten query. PostgreSQL does collect expression statistics for a
- * PARTIAL expression index — they are there in pg_stats. What it will not do is CONSULT them
+ * partial expression index — they are there in pg_stats. What it will not do is consult them
  * for a query that does not imply the index predicate, and resolution does not: it asks for
  * `lower(slug) = ?` without `is_current`. So the estimate falls back to the default 0.5%
  * guess: at 100,000 rows the planner expects 500 matches where there is 1, and on that
@@ -61,7 +61,7 @@ return new class extends Migration
             return;
         }
 
-        // PostgreSQL + SQLite: the same functional index, deliberately WITHOUT the partial
+        // PostgreSQL + SQLite: the same functional index, deliberately without the partial
         // WHERE clause. Adding it back would reproduce the defect this migration exists for.
         DB::statement(
             'CREATE INDEX polyslug_slugs_resolution ON '.$this->table('polyslug_slugs').' '

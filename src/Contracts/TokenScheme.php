@@ -8,7 +8,7 @@ use Closure;
 use Polyslug\Support\TokenAlphabet;
 
 /**
- * Decides what a NEWLY issued token looks like — the one thing that differs between an
+ * Decides what a newly issued token looks like — the one thing that differs between an
  * unguessable URL and a counted one.
  *
  * It is deliberately not an IdentityEncoder. An encoder answers "which record is this
@@ -22,7 +22,7 @@ interface TokenScheme
      * A token to try on the given 0-based claim attempt.
      *
      * The caller re-enters this method only when the previous candidate lost to another
-     * TOKEN — a lost race for the same key returns the winner's token instead of looping —
+     * token — a lost race for the same key returns the winner's token instead of looping —
      * so `$attempt` measures how contended this scheme's current output length is, and an
      * implementation may use it to yield to a longer token.
      *

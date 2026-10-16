@@ -17,7 +17,7 @@ use Polyslug\Contracts\TokenScheme;
  *
  * This is what a link shortener wants, and it is the exact opposite trade from
  * {@see RandomTokenScheme}. It produces the shortest URL that can exist for a given number
- * of records, and in exchange the URL is COMPLETELY PREDICTABLE: the next token follows
+ * of records, and in exchange the URL is completely predictable: the next token follows
  * from the last one, so anybody can walk the whole set, and the token itself reports how
  * many records there are and roughly when this one was created.
  *
@@ -25,7 +25,7 @@ use Polyslug\Contracts\TokenScheme;
  * the package offers it. It is the wrong choice for anything the URL alone protects, and
  * it is not the default for that reason.
  *
- * A MINIMUM LENGTH does not fix that, and should not be mistaken for doing so. Starting at
+ * A minimum length does not fix that, and should not be mistaken for doing so. Starting at
  * four characters means the counting starts at the first four-character token instead of
  * the first one-character token; it does not scatter the tokens, and `k3f8` is still
  * followed by `k3f9`.
@@ -68,7 +68,7 @@ final readonly class SequentialTokenScheme implements TokenScheme
     /**
      * The next token after the ones already issued, plus one per attempt already lost.
      *
-     * `$issued` is a LOWER BOUND, not a cursor, and the difference is what makes this safe
+     * `$issued` is a lower bound, not a cursor, and the difference is what makes this safe
      * to run concurrently and safe to switch on midway through a table's life. The store
      * answers it from the highest row id it has, which counts rows written by any scheme —
      * so turning this on over a table full of random tokens starts counting past them

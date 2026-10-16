@@ -14,7 +14,7 @@ use RuntimeException;
  * Two shapes of mistake end up here. One is a pair that contradicts itself — `idLess: true`
  * with `unique: false`, where the URL is the slug alone and so the slug must stay unique to
  * resolve; or `slugless: true` with `idLess: true`, which drops both halves of the URL. The
- * other is an option that would quietly do NOTHING, which is refused for the reason the
+ * other is an option that would quietly do nothing, which is refused for the reason the
  * reclaim messages give: whoever set it believes a behavior changed, and the only way they
  * would find out otherwise is from the behavior they were trying to change.
  */
@@ -82,6 +82,64 @@ final class MisconfiguredPolyslug extends RuntimeException
             'A #[Polyslug] model must declare `source` — the column(s) its slug is built from. The '
             .'only exception is `slugless: true`, whose URL is the encoder token alone and has no '
             .'slug to build.'
+        );
+    }
+
+    public static function identityExcludesEncoder(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `identity` with `encoder` or `encoderOptions`: the '
+            .'identity column is the token of its URL, so no encoder is ever asked for one, and an '
+            .'encoder named beside it would read as if it still shaped the URL. Drop `encoder` and '
+            .'`encoderOptions`, or drop `identity` to have the encoder build the token from the key.'
+        );
+    }
+
+    public static function identityExcludesIdLess(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `identity` with `idLess: true`: the identity column '
+            .'supplies the token of the URL, and idLess drops the token, so the column would never '
+            .'be read. Drop `idLess` to route on the column, or drop `identity` for a URL that is the '
+            .'slug alone.'
+        );
+    }
+
+    public static function computedSlugMustNotBeUnique(): self
+    {
+        return new self(
+            'A #[Polyslug] model with `stored: false` must also set `unique: false`: a computed slug '
+            .'is built from its source on every call and written nowhere, so nothing can keep two '
+            .'records from computing the same one, and the token after it tells them apart. Add '
+            .'`unique: false`, or drop `stored: false` to store slugs that are kept unique.'
+        );
+    }
+
+    public static function computedSlugExcludesIdLess(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `stored: false` with `idLess: true`: an idLess URL is '
+            .'resolved by looking its slug up, and a computed slug is stored nowhere to look up. Drop '
+            .'`idLess` so the URL carries a token, or drop `stored: false`.'
+        );
+    }
+
+    public static function computedSlugExcludesImmutable(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot combine `stored: false` with `immutable: true`: an immutable '
+            .'slug keeps the value it was first written with, and a computed slug is never written, '
+            .'so it follows its source on every call. Drop `immutable`, or drop `stored: false` to '
+            .'keep the first slug.'
+        );
+    }
+
+    public static function computedSlugIsNotWritten(string $model): self
+    {
+        return new self(
+            $model.' computes its slug with `stored: false`, so setSlug() and seedSlug() have '
+            .'nothing to write: the slug follows the source on every call and no row holds it. '
+            .'Change the source instead, or drop `stored: false` to store slugs.'
         );
     }
 

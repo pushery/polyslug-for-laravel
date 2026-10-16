@@ -17,7 +17,7 @@ use Polyslug\Support\TokenStore;
  * The shortest URL a record can have: tokens are handed out in order — `0`, `1`, … `z`,
  * then `00` — and a width grows only once it is used up. What a link shortener wants.
  *
- * IT IS PREDICTABLE ON PURPOSE, and that is the entire trade. The token after `k3f8` is
+ * It is predictable on purpose, and that is the entire trade. The token after `k3f8` is
  * `k3f9`, so anyone can walk the whole set, and the token reports both how many records
  * exist and roughly when this one was created. On public content nobody is trying to hide,
  * that costs nothing and buys the shortest link there is. On anything the URL alone
@@ -25,7 +25,7 @@ use Polyslug\Support\TokenStore;
  * characters moves where the counting begins, it does not scatter what follows.
  * {@see RandomTokenEncoder} is the one that makes a URL unguessable.
  *
- * Like the random encoder it STORES the mapping (polyslug_tokens), so the token is stable
+ * Like the random encoder it stores the mapping (polyslug_tokens), so the token is stable
  * per record, deleting a record never hands its token to another (its row stays, and only
  * removing that row frees the token), and switching to this encoder over a table full of
  * random tokens starts counting past them instead of fighting them — every existing URL
@@ -67,7 +67,7 @@ final readonly class SequentialTokenEncoder implements BulkIdentityDecoder, Bulk
     }
 
     /**
-     * The UNTYPED lane, kept for the inherited contract.
+     * The untyped lane, kept for the inherited contract.
      *
      * Polyslug itself always calls encodeWithin(); this is what a consumer calling the
      * encoder directly gets, and what tokens issued before tokens had owners live in.

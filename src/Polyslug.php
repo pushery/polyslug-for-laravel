@@ -12,7 +12,7 @@ use Polyslug\Contracts\ProvidesAddressLocales;
  *
  * The slug is human-readable and may change; the encoded identity is stable. The
  * delimiter is reserved and never valid inside a slug, so the value is split on its
- * LAST occurrence — a slug that (illegally) contains the delimiter still resolves to
+ * last occurrence — a slug that (illegally) contains the delimiter still resolves to
  * the identity and is corrected by the canonical redirect.
  */
 final class Polyslug
@@ -83,7 +83,7 @@ final class Polyslug
     }
 
     /**
-     * The locales a record is ANNOUNCED under — the addresses it is served at, not merely the
+     * The locales a record is announced under — the addresses it is served at, not merely the
      * locales it holds slug text for.
      *
      * The two are the same set for most models, and `slugLocales()` is the right answer there.
@@ -101,9 +101,9 @@ final class Polyslug
      * arrangement. Typing this Sluggable would be a claim HasPolyslug cannot keep. Taking the
      * fallback as an argument keeps the rule in one place without inventing a type.
      *
-     * LAZY, and that is not a micro-optimization: `slugLocales()` issues a query whenever the
+     * Lazy, and that is not a micro-optimization: `slugLocales()` issues a query whenever the
      * slugs relation is not eager-loaded. Taking the list by value would make every model that
-     * DOES declare address locales pay for a slug read whose result is then thrown away — one
+     * does declare address locales pay for a slug read whose result is then thrown away — one
      * per record, on every render, which is the exact cost this package spent a release
      * removing elsewhere.
      *

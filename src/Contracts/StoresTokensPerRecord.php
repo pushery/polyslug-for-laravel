@@ -16,10 +16,10 @@ namespace Polyslug\Contracts;
  * keeps a token space per type: `Page#1` and `Wishlist#1` get different tokens, and one
  * model's URL no longer yields another model's URL for the same id.
  *
- * IT EXTENDS IdentityEncoder RATHER THAN REPLACING IT, so an encoder written against the
+ * It extends IdentityEncoder rather than replacing it, so an encoder written against the
  * older contract keeps working untouched — it keeps one shared space, which is what
  * it always had. The inherited untyped methods stay meaningful here too: they address the
- * UNTYPED lane, which is where tokens issued before this contract existed live, and it is
+ * untyped lane, which is where tokens issued before this contract existed live, and it is
  * what a legacy decoder reaches through.
  */
 interface StoresTokensPerRecord extends IdentityEncoder
@@ -28,7 +28,7 @@ interface StoresTokensPerRecord extends IdentityEncoder
     public function encodeWithin(string $type, int|string $id): string;
 
     /**
-     * The key this token belongs to WITHIN this morph type.
+     * The key this token belongs to within this morph type.
      *
      * Null when the token belongs to another type or to nothing — which makes a token
      * borrowed from a different model a clean 404 rather than a lookup against this model's

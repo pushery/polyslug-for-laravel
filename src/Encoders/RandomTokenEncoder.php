@@ -19,21 +19,21 @@ use Polyslug\Support\TokenStore;
  * order, or value — so it suits enumeration-sensitive, integer-keyed tables. The
  * token is stable per key (one row), so each record keeps a single canonical URL.
  *
- * NOTE — encode() WRITES on first use. Rendering a link issues an INSERT the first
+ * Note — encode() writes on first use. Rendering a link issues an INSERT the first
  * time a given key is encoded, and never again afterwards. That rules this encoder
  * out on a read-only replica connection, and it makes the first render of a batch of
  * new records the moment of peak write contention. Both are inherent to storing the
  * mapping; the retry loop in {@see TokenStore} is what makes them safe rather than fatal.
  *
- * TOKEN LENGTH is a parameter, not a constant, because the two things it trades off are
+ * Token length is a parameter, not a constant, because the two things it trades off are
  * the consumer's to weigh and not this package's: URL length against how many tokens a
  * guesser must try. A share link that is the only thing between a visitor and the content
  * wants length; a token behind an authorization check, meant only to keep the URL out of
  * the way, does not. Set it with `polyslug.random_token.length`, or per model with
- * `#[Polyslug(encoderOptions: ['length' => …])]`. It is a FLOOR: a length whose space fills
+ * `#[Polyslug(encoderOptions: ['length' => …])]`. It is a floor: a length whose space fills
  * up yields to one character more rather than failing to issue a URL.
  *
- * CHANGING IT DOES NOT BREAK EXISTING URLS. A token is looked up in the table, never
+ * Changing it does not break existing URLs. A token is looked up in the table, never
  * recomputed from the key, so tokens issued at the old length keep resolving unchanged and
  * only records encoded from here on get the new one. The table legitimately holds a mix.
  *
@@ -67,7 +67,7 @@ final readonly class RandomTokenEncoder implements BulkIdentityDecoder, BulkIden
     }
 
     /**
-     * The UNTYPED lane, kept for the inherited contract.
+     * The untyped lane, kept for the inherited contract.
      *
      * Polyslug itself always calls encodeWithin(); this is what a consumer calling the
      * encoder directly gets, and what tokens issued before tokens had owners live in.

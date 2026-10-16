@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /**
- * A `morphMany` whose eager constraint is BOUND rather than inlined, a thousand keys a query.
+ * A `morphMany` whose eager constraint is bound rather than inlined, a thousand keys a query.
  *
  * @template TRelatedModel of Model
  * @template TDeclaringModel of Model
@@ -41,7 +41,7 @@ final class StringKeyedMorphMany extends MorphMany
      *
      * `Relation::whereInMethod()` picks `whereIntegerInRaw` whenever the local key is the
      * parent's own integer primary key — which is every ordinary Eloquent model. That path
-     * casts the keys to int and writes them INTO the SQL text, unquoted:
+     * casts the keys to int and writes them into the SQL text, unquoted:
      *
      *     where "polyslug_slugs"."sluggable_id" in (1, 2)
      *
@@ -51,7 +51,7 @@ final class StringKeyedMorphMany extends MorphMany
      *
      * Binding instead of inlining is what fixes it, and the reason is specific: a bound
      * parameter is sent with no declared type, so PostgreSQL infers it from the column it is
-     * compared against. That is also why the LAZY path never broke. It has always issued a
+     * compared against. That is also why the lazy path never broke. It has always issued a
      * bound `where "sluggable_id" = ?`.
      *
      * @param  string  $key

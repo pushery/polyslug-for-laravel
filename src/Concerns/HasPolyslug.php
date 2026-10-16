@@ -38,6 +38,7 @@ use Polyslug\Events\SlugChanged;
 use Polyslug\Events\SlugReclaimed;
 use Polyslug\Exceptions\CouldNotIssueToken;
 use Polyslug\Exceptions\CouldNotWriteSlug;
+use Polyslug\Exceptions\MisconfiguredPolyslug;
 use Polyslug\Models\PolyslugShortLink;
 use Polyslug\Models\PolyslugSlug;
 use Polyslug\Polyslug;
@@ -49,8 +50,10 @@ use Polyslug\Support\DeletionState;
 use Polyslug\Support\LocaleColumn;
 use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
+use Polyslug\Support\StatusSetting;
 use Polyslug\Support\TokenAlphabet;
 use Stringable;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Throwable;
 
 use function Illuminate\Support\enum_value;
@@ -113,7 +116,7 @@ trait HasPolyslug
         // against the varchar `sluggable_id` on PostgreSQL — see StringKeyedMorphMany.
         //
         // Built here rather than by overriding `newMorphMany()`, because that hook is shared:
-        // overriding it would silently change every OTHER morphMany on a consumer's model too.
+        // overriding it would silently change every other morphMany on a consumer's model too.
         $instance = $this->polyslugSlugModel();
 
         // The morph column names are written out rather than derived through `getMorphs()`:
@@ -143,8 +146,8 @@ trait HasPolyslug
     /**
      * Warm the identity tokens for a whole set of models in one round trip.
      *
-     * The companion to eager-loading `slugs`. That removes the per-model SLUG query; this
-     * removes the per-model TOKEN query, which is what the database-backed default encoder
+     * The companion to eager-loading `slugs`. That removes the per-model slug query; this
+     * removes the per-model token query, which is what the database-backed default encoder
      * costs on the first render of each row:
      *
      *     $pages = Page::query()->with('slugs')->paginate();
@@ -154,20 +157,20 @@ trait HasPolyslug
      * token queries, because the encoder is bound as a singleton and answers from the memo
      * this call filled.
      *
-     * A NO-OP WHERE THERE IS NOTHING TO WIN, and silently so, on purpose. Sqids, UUID, ULID
+     * A no-op where there is nothing to win, and silently so, on purpose. Sqids, UUID, ULID
      * and the raw key derive their token from the key alone; they do not implement
      * BulkIdentityEncoder, and calling this with them costs one array walk. So a consumer
      * may write it unconditionally without first knowing which encoder is configured — the
      * point of an optimization hint is that it does not become a configuration question.
      *
-     * Models are grouped by their RESOLVED encoder rather than assumed to share one:
+     * Models are grouped by their resolved encoder rather than assumed to share one:
      * `#[Polyslug(encoder: ...)]` is per-model, so a mixed set would otherwise send keys to
      * the wrong store.
      *
      * @param  iterable<mixed>  $models  narrowed by the instanceof below rather than by the
      *                                   signature: typing this as iterable<Sluggable> makes
      *                                   the guard provably dead on a class that uses the
-     *                                   trait WITHOUT implementing Sluggable — which is a
+     *                                   trait without implementing Sluggable — which is a
      *                                   supported shape here, and PHPStan says so
      */
     public static function polyslugPreload(iterable $models): void
@@ -183,18 +186,24 @@ trait HasPolyslug
                 continue;
             }
 
+            // A model whose token is a column of its own asks no encoder for one, so there is
+            // nothing to preload, and asking would file tokens for keys no URL of it carries.
+            if ($model->polyslugConfig()->identity !== null) {
+                continue;
+            }
+
             $encoder = $model->polyslugEncoder();
 
             if (! $encoder instanceof BulkIdentityEncoder) {
                 continue;
             }
 
-            // Grouped by encoder AND morph type, because a type-scoped store looks a key up
+            // Grouped by encoder and morph type, because a type-scoped store looks a key up
             // under its owner: one batch spanning two types would ask for every key under the
             // first one, find nothing, and turn the preload into the per-row queries it exists
             // to remove.
             // Non-empty for a stored-token encoder, since getMorphClass() always answers with
-            // a class name; the untyped lane below is reached by the encoder KIND, not by an
+            // a class name; the untyped lane below is reached by the encoder kind, not by an
             // empty type. A second `!== ''` test used to guard the branch and could never
             // fire — a condition that cannot be false reads as a case that happens.
             $type = $encoder instanceof StoresTokensPerRecord ? $model->getMorphClass() : '';
@@ -214,7 +223,7 @@ trait HasPolyslug
 
             // An encoder that batches but cannot hold an owner — the contract as it stood
             // before 0.11. It keeps one shared space, which is what it always had, and this
-            // line is the compatibility promise StoresTokensPerRecord makes by EXTENDING
+            // line is the compatibility promise StoresTokensPerRecord makes by extending
             // IdentityEncoder instead of replacing it.
             $encoder->encodeMany($batch['keys']);
         }
@@ -222,7 +231,50 @@ trait HasPolyslug
 
     public function currentSlug(?string $locale = null): ?string
     {
+        $config = $this->polyslugConfig();
+
+        if (! $config->stored) {
+            return $this->polyslugComputedSlug($config, $locale ?? $this->polyslugLocale());
+        }
+
         return $this->currentSlugRow($locale)?->slug;
+    }
+
+    /**
+     * Whether this model writes its slugs to `polyslug_slugs`: false for `stored: false`, whose
+     * slug is computed from its source on every call and held nowhere.
+     */
+    public function polyslugStoresSlugs(): bool
+    {
+        return $this->polyslugConfig()->stored;
+    }
+
+    /**
+     * The text a computed slug (`stored: false`) is built from in one locale.
+     *
+     * The configured source columns by default, which give the same text in every locale.
+     * Override it where the record holds its text per locale, such as a name projected for each
+     * language.
+     */
+    public function polyslugComputedSource(string $locale): string
+    {
+        return $this->polyslugSource($this->polyslugConfig());
+    }
+
+    /**
+     * Whether a token that resolves to no record names one that was withdrawn for good.
+     *
+     * Route binding asks it once the token of a URL has found nothing, and answers with
+     * `polyslug.gone.status` (410 by default) instead of 404 when it says yes. So a record that
+     * is no longer stored at all still answers as gone: a read model that drops a withdrawn
+     * article, and keeps the tokens it withdrew in a table of its own. The token is the part of
+     * the URL after the delimiter, and the whole value on a slugless model. The answer is given
+     * before the application's own, as a 404 is, so name only tokens whose withdrawal may be
+     * known to anyone who asks. False by default.
+     */
+    public function polyslugIsGoneAddress(string $token): bool
+    {
+        return false;
     }
 
     public function polyslugRouteKey(?string $locale = null): string
@@ -268,7 +320,7 @@ trait HasPolyslug
             return $own;
         }
 
-        // Prepend the ancestors' path (computed from their CURRENT slugs), so renaming or
+        // Prepend the ancestors' path (computed from their current slugs), so renaming or
         // reparenting an ancestor changes this URL — the canonical middleware then 301s the
         // stale one. maxDepth bounds a parent cycle.
         $prefix = $parent->polyslugPath($locale, $maxDepth - 1);
@@ -283,10 +335,10 @@ trait HasPolyslug
      * printed or spoken link can be short and counted while the identity token inside every
      * URL stays long and unguessable, or the other way round.
      *
-     * CLAIMED IN A LOOP rather than through firstOrCreate, and that is what makes a short
+     * Claimed in a loop rather than through firstOrCreate, and that is what makes a short
      * setting usable here at all. The table carries two unique indexes, and firstOrCreate
-     * only ever recovers from one of them: it retries by re-reading the TARGET, so a row
-     * rejected because another record already holds that TOKEN finds nothing on the re-read
+     * only ever recovers from one of them: it retries by re-reading the target, so a row
+     * rejected because another record already holds that token finds nothing on the re-read
      * and surfaces as a query exception — at 10 random characters that is unreachable, at
      * four it is a matter of time, and it would land while a page is being rendered.
      */
@@ -357,10 +409,10 @@ trait HasPolyslug
     }
 
     /**
-     * Sync WITHOUT taking a name another record still holds — the backfill counterpart.
+     * Sync without taking a name another record still holds — the backfill counterpart.
      *
-     * ON THE Sluggable CONTRACT, which makes this a breaking change for a consumer that
-     * implements the interface WITHOUT taking this trait. It was trait-only first, and the
+     * On the Sluggable contract, which makes this a breaking change for a consumer that
+     * implements the interface without taking this trait. It was trait-only first, and the
      * package's own backfill is what settled it: a capability the contract does not carry
      * cannot be called on anything typed as Sluggable — not by a consumer, and not by this
      * package. Half a capability is worse than a named break in a release that already
@@ -378,15 +430,21 @@ trait HasPolyslug
 
     private function polyslugWriteFromSource(PolyslugConfig $config, ?string $locale): void
     {
+        // A computed slug is written nowhere: saving the record changes its slug by changing the
+        // source it is computed from.
+        if (! $config->stored) {
+            return;
+        }
+
         $locale ??= $this->polyslugLocale();
 
-        // fresh: a write decides against what is current NOW, never against a collection
+        // fresh: a write decides against what is current now, never against a collection
         // loaded before this request touched anything.
         $current = $this->currentSlugRow($locale, fresh: true);
 
         // A slugless model has one possible slug — the empty one — so once a row exists for
         // this locale there is nothing a save could change. Named rather than left to the
-        // wasChanged() test below, which reads an EMPTY column list as "did anything change
+        // wasChanged() test below, which reads an empty column list as "did anything change
         // at all" and would therefore re-run the whole write path on every unrelated update.
         //
         // A row whose stored scope is no longer the record's is written again even when the
@@ -406,15 +464,19 @@ trait HasPolyslug
     {
         $config = $this->polyslugConfig();
 
+        if (! $config->stored) {
+            throw MisconfiguredPolyslug::computedSlugIsNotWritten(static::class);
+        }
+
         $this->writeSlug($locale, $source ?? $this->polyslugSource($config), $config);
     }
 
     /**
-     * Write a slug WITHOUT taking a name another record still holds.
+     * Write a slug without taking a name another record still holds.
      *
      * The seeding counterpart to setSlug(), and the distinction is not stylistic. On a model
      * with `reclaimActive: true`, setSlug() retires whoever currently holds the name — right
-     * for a webhook, where the source has already handed the name over and that handover IS
+     * for a webhook, where the source has already handed the name over and that handover is
      * the truth. It is wrong for a backfill: two existing records wanting one name are a
      * conflict in the data, not a handover, and taking there decides ownership by row order
      * while nobody finds out.
@@ -423,7 +485,7 @@ trait HasPolyslug
      * idLess model, where a suffix would change the URL's meaning — the write refuses with
      * CouldNotWriteSlug. Both are reports; neither is a silent reassignment.
      *
-     * A NAMED METHOD rather than a boolean on setSlug(), for a reason that outlives the
+     * A named method rather than a boolean on setSlug(), for a reason that outlives the
      * choice: reclaimActive requires `reclaim`, so a flag could only ever turn the behavior
      * OFF. A parameter whose `true` means "do what the model already said" is a trap, and the
      * one place the difference matters is the call site — which is exactly what a name shows
@@ -436,6 +498,10 @@ trait HasPolyslug
     {
         $config = $this->polyslugConfig()->withoutActiveReclaim();
 
+        if (! $config->stored) {
+            throw MisconfiguredPolyslug::computedSlugIsNotWritten(static::class);
+        }
+
         $this->writeSlug($locale, $source ?? $this->polyslugSource($config), $config);
     }
 
@@ -444,6 +510,15 @@ trait HasPolyslug
      */
     public function slugLocales(): array
     {
+        // A computed slug is held nowhere, so no row limits it to the locales it was written in.
+        // It is announced in the default locale, and a model served under more locales names
+        // them through ProvidesAddressLocales.
+        if (! $this->polyslugConfig()->stored) {
+            $default = $this->polyslugDefaultLocale();
+
+            return $default === '' ? [] : [$default];
+        }
+
         // Reads the eager-loaded relation for the same reason currentSlugRow() does, and
         // it matters more here: this is what polyslugUrls() calls first, so every hreflang
         // set, every <head> and every sitemap entry used to open with its own query.
@@ -472,6 +547,11 @@ trait HasPolyslug
      */
     public function slugHistory(?string $locale = null): array
     {
+        // A computed slug keeps no former values: the old URL resolves by its token instead.
+        if (! $this->polyslugConfig()->stored) {
+            return [];
+        }
+
         return array_values(
             $this->slugs()
                 ->where('locale', $locale ?? $this->polyslugLocale())
@@ -499,6 +579,11 @@ trait HasPolyslug
      */
     public function retireSlug(string $slug, ?string $locale = null): int
     {
+        // A computed slug holds no former slugs, so there is none to retire.
+        if (! $this->polyslugConfig()->stored) {
+            return 0;
+        }
+
         $locale ??= $this->polyslugLocale();
 
         if (Str::lower($this->currentSlug($locale) ?? '') === Str::lower($slug)) {
@@ -529,7 +614,7 @@ trait HasPolyslug
     {
         $config = $this->polyslugConfig();
 
-        if ($config->slugless) {
+        if ($config->slugless || ! $config->stored) {
             return false;
         }
 
@@ -552,7 +637,7 @@ trait HasPolyslug
     {
         $urls = [];
 
-        // The ANNOUNCED locales, which are the slug locales unless the model declares
+        // The announced locales, which are the slug locales unless the model declares
         // otherwise — see Polyslug::announcedLocales() and the ProvidesAddressLocales contract.
         foreach (Polyslug::announcedLocales($this, $this->slugLocales(...)) as $locale) {
             if ($this->polyslugIsRoutable($locale)) {
@@ -639,9 +724,9 @@ trait HasPolyslug
             // after a failed attempt precisely because another writer may have moved the row.
             // A cached collection would hand back the same superseded row on every pass.
             //
-            // Only the FIRST pass may take the caller's answer, and only because that read
+            // Only the first pass may take the caller's answer, and only because that read
             // happened microseconds ago with no write between. Every later pass exists
-            // BECAUSE the world moved, so reusing $known there would defeat the retry.
+            // because the world moved, so reusing $known there would defeat the retry.
             $current = $attempt === 1 && $known !== false
                 ? $known
                 : $this->currentSlugRow($locale, fresh: true);
@@ -653,7 +738,7 @@ trait HasPolyslug
                     locale: $locale,
                     scope: $scope,
                     exceptId: $this->polyslugKeyString(),
-                    // Resolved HERE rather than in the generator, because only the model can
+                    // Resolved here rather than in the generator, because only the model can
                     // answer it: the seam is the model's, and a generator receives a request,
                     // not a record.
                     reserved: $this->polyslugReservedWords(ReservedWords::inherited($config)),
@@ -669,7 +754,7 @@ trait HasPolyslug
                 return;
             }
 
-            // Demote-old + insert-new in one transaction that always COMMITS. insertOrIgnore
+            // Demote-old + insert-new in one transaction that always commits. insertOrIgnore
             // skips (returns 0), without throwing, a slug a concurrent writer claimed between
             // our generate and insert; on that miss we restore the demoted row inside the same
             // transaction, so the model always keeps exactly one current slug. Because the write
@@ -680,7 +765,7 @@ trait HasPolyslug
             $displaced = [];
 
             $inserted = $this->polyslugWriteTransaction($slugModel->getConnection(), function () use ($slugModel, $current, $locale, $scope, $desired, $config, &$displaced): int {
-                // The takeover belongs INSIDE this transaction, next to the insert it makes room
+                // The takeover belongs inside this transaction, next to the insert it makes room
                 // for. Retiring the holder first and inserting afterwards would leave the name
                 // owned by nobody if the insert then lost a race.
                 if ($config->reclaimActive) {
@@ -709,7 +794,7 @@ trait HasPolyslug
                 if ($inserted === 0) {
                     $current?->update(['is_current' => true]);
 
-                    // WHAT THIS ATTEMPT RETIRED STAYS RETIRED, and that is not an oversight
+                    // What this attempt retired stays retired, and that is not an oversight
                     // beside the restore above — it is the only correct answer here.
                     //
                     // This branch is reached because the insert lost a race, and under
@@ -797,7 +882,7 @@ trait HasPolyslug
     }
 
     /**
-     * Retire every OTHER record's current row for this exact name, and hand the rows back so
+     * Retire every other record's current row for this exact name, and hand the rows back so
      * the caller can restore them if its own insert then loses a race.
      *
      * Scoped exactly like the uniqueness probe it complements — same type, locale, scope,
@@ -820,9 +905,9 @@ trait HasPolyslug
     }
 
     /**
-     * Rows of OTHER records that currently hold this exact name.
+     * Rows of other records that currently hold this exact name.
      *
-     * Named rather than inlined into its one caller, because the SCOPING is the subtle part and
+     * Named rather than inlined into its one caller, because the scoping is the subtle part and
      * this is where it is stated: same type, locale, scope, enforce_unique and case-folded slug
      * as the uniqueness probe in DefaultSlugGenerator — which is precisely the set
      * current_unique covers. Widen it and the takeover retires a name nobody was competing for;
@@ -861,25 +946,69 @@ trait HasPolyslug
         }
 
         $routeValue = is_scalar($value) ? (string) $value : '';
+        $config = $this->polyslugConfig();
 
-        if ($this->polyslugConfig()->slugless) {
-            return $this->resolveSluglessRouteBinding($routeValue);
+        if ($config->slugless) {
+            [, $legacy] = Polyslug::split($routeValue);
+
+            return $this->resolveSluglessRouteBinding($routeValue)
+                ?? $this->polyslugUnlessGone($legacy === null || $legacy === '' ? $routeValue : $legacy);
         }
 
         [$slug, $encodedId] = Polyslug::split($routeValue);
 
         if ($encodedId === null || $encodedId === '') {
             // No id part: slug-only models resolve by their slug instead.
-            return $this->polyslugConfig()->idLess ? $this->resolveBySlug($slug) : null;
+            return $config->idLess ? $this->resolveBySlug($slug) : null;
         }
 
-        $id = $this->polyslugDecode($encodedId);
+        return $this->polyslugResolveToken($encodedId) ?? $this->polyslugUnlessGone($encodedId);
+    }
 
-        if ($id === null) {
-            return null;
+    /**
+     * The record the token of a URL names: by the identity column where the model declares one,
+     * by the decoded key otherwise.
+     */
+    private function polyslugResolveToken(string $token): ?static
+    {
+        $identity = $this->polyslugConfig()->identity;
+
+        if ($identity !== null) {
+            return $this->polyslugResolveByIdentity($identity, $token);
         }
 
-        return $this->polyslugResolveByKey($id);
+        $id = $this->polyslugDecode($token);
+
+        return $id === null ? null : $this->polyslugResolveByKey($id);
+    }
+
+    /**
+     * The record whose identity column holds this token, through the resolution gate.
+     *
+     * The column is qualified by the model of the query the gate answers with, so a gate that
+     * joins a table of its own keeps the comparison unambiguous.
+     */
+    private function polyslugResolveByIdentity(string $column, string $token): ?static
+    {
+        $query = $this->polyslugResolveQuery($this->polyslugBindingQuery());
+        $resolved = $query->where($query->getModel()->qualifyColumn($column), $token)->first();
+
+        return $resolved instanceof static ? $resolved : null;
+    }
+
+    /**
+     * Nothing, unless the token names a record that was withdrawn for good, in which case the
+     * answer is gone rather than not found: see polyslugIsGoneAddress().
+     *
+     * @throws HttpException
+     */
+    private function polyslugUnlessGone(string $token): null
+    {
+        if ($this->polyslugIsGoneAddress($token)) {
+            throw new HttpException(StatusSetting::error('polyslug.gone.status', 410));
+        }
+
+        return null;
     }
 
     /**
@@ -936,6 +1065,12 @@ trait HasPolyslug
             $candidates[$value] = $slugless ? array_values(array_filter([$value, $tail])) : [$tail ?? $value];
         }
 
+        $identity = $model->polyslugConfig()->identity;
+
+        if ($identity !== null) {
+            return $model->polyslugResolveManyByIdentity($identity, $candidates);
+        }
+
         $keys = $model->polyslugDecodeMany(array_values(array_unique(array_merge(...array_values($candidates)))));
         $records = [];
 
@@ -957,6 +1092,48 @@ trait HasPolyslug
 
                 if ($key !== null && isset($records[(string) $key])) {
                     $resolved[$value] = $records[(string) $key];
+
+                    break;
+                }
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * The records of many tokens of a model whose token is its identity column: one query per
+     * thousand tokens, through the resolution gate.
+     *
+     * @param  array<array-key, list<string>>  $candidates  the tokens each value may carry, in the order to try them
+     * @return array<array-key, static> the record of each value, keyed by the value
+     */
+    private function polyslugResolveManyByIdentity(string $column, array $candidates): array
+    {
+        $records = [];
+
+        foreach (array_chunk(array_values(array_unique(array_merge(...array_values($candidates)))), self::POLYSLUG_RESOLVE_SLICE) as $slice) {
+            $query = $this->polyslugResolveQuery($this->polyslugBindingQuery());
+
+            foreach ($query->whereIn($query->getModel()->qualifyColumn($column), $slice)->get() as $record) {
+                // The gate is free to answer with a query for another model, as in the loop by key
+                // above; such a row is not this model's record.
+                if ($record instanceof static) {
+                    $token = $this->polyslugColumnValue($record->getAttribute($column));
+
+                    if (is_scalar($token)) {
+                        $records[(string) $token] = $record;
+                    }
+                }
+            }
+        }
+
+        $resolved = [];
+
+        foreach ($candidates as $value => $tokens) {
+            foreach ($tokens as $token) {
+                if (isset($records[$token])) {
+                    $resolved[$value] = $records[$token];
 
                     break;
                 }
@@ -1024,7 +1201,7 @@ trait HasPolyslug
      * Resolve a token-only URL — the whole value is the token, because there is no slug in
      * front of it to split off.
      *
-     * IT STILL ACCEPTS THE OLD DESCRIPTIVE URL, and that is the point of the second pass
+     * It still accepts the old descriptive URL, and that is the point of the second pass
      * rather than an indulgence. Switching an existing model to slugless would otherwise
      * turn every published `my-title_TOKEN` link into a 404 — including links in print,
      * in other people's pages, and in a search index. Falling back to the part after the
@@ -1032,7 +1209,7 @@ trait HasPolyslug
      * to the short form, so old links self-heal exactly as they do across an encoder
      * change.
      *
-     * The canonical form is tried FIRST, so an ordinary hit costs one decode. Trying the
+     * The canonical form is tried first, so an ordinary hit costs one decode. Trying the
      * legacy shape on a token that has no delimiter would be a second decode on every
      * request for nothing; trying it first would ask the encoder to decode a string that
      * is not a token, which every shipped encoder answers with null anyway — a round trip
@@ -1040,6 +1217,15 @@ trait HasPolyslug
      */
     private function resolveSluglessRouteBinding(string $routeValue): ?static
     {
+        $identity = $this->polyslugConfig()->identity;
+
+        if ($identity !== null) {
+            [, $legacy] = Polyslug::split($routeValue);
+
+            return $this->polyslugResolveByIdentity($identity, $routeValue)
+                ?? ($legacy === null || $legacy === '' ? null : $this->polyslugResolveByIdentity($identity, $legacy));
+        }
+
         $id = $this->polyslugDecode($routeValue);
 
         if ($id === null) {
@@ -1052,7 +1238,7 @@ trait HasPolyslug
     }
 
     /**
-     * Resolve this model type by primary key THROUGH the resolution gate
+     * Resolve this model type by primary key through the resolution gate
      * (polyslugResolveQuery), so tenant/visibility scoping applies uniformly to every
      * resolution path — bound routes, the polymorphic resolver, slug-only, and /go.
      * `mixed` because every caller hands over an untyped value (a route parameter, a
@@ -1136,11 +1322,11 @@ trait HasPolyslug
      * Resolve a slug-only URL by its slug: current slugs first (canonical), then
      * superseded ones (the canonical middleware then 301s to the current URL).
      *
-     * SCOPE IS THE CALLER'S TO NAME, and the resolve-query gate does not stand in for it. The
+     * Scope is the caller's to name, and the resolve-query gate does not stand in for it. The
      * two answer different questions: the gate separates by what the environment says is
      * visible (session, tenant, request context). A scope that lives in a path segment —
      * `/@alice/toolkit` versus
-     * `/@bob/toolkit` — is an ARGUMENT of the resolution, not environment state, so it
+     * `/@bob/toolkit` — is an argument of the resolution, not environment state, so it
      * reaches neither this query nor the gate. Both rows may legally hold the slug, because
      * the unique index is scope-bound too; the lookup then returns whichever sorts first.
      * A nested path is the exception, because its ancestor part names the parent:
@@ -1148,7 +1334,7 @@ trait HasPolyslug
      *
      * Override polyslugResolutionScope() to hand the scope over. With
      * `polyslug.resolution.require_scope` enabled, a scope-bound model whose caller names
-     * no scope is REFUSED here instead of resolved across scopes — because the damage never
+     * no scope is refused here instead of resolved across scopes — because the damage never
      * came from the missing filter, it came from its absence looking exactly like a hit.
      */
     private function resolveBySlug(string $value): ?static
@@ -1273,10 +1459,10 @@ trait HasPolyslug
      * first segment of every registered route. Returning it unchanged is the default and
      * keeps the historical behavior.
      *
-     * IT COULD ONLY EVER ADD, AND THAT IS WHY THIS EXISTS. For a model that sits behind a
+     * It could only ever add, and that is why this exists. For a model that sits behind a
      * prefix by construction — `/@{owner}/{repo}` — a slug can never shadow a route, because
      * the `@` separates the namespaces completely. Every reservation there is a false
-     * positive, and it fails SILENTLY: the generator appends a counter suffix rather than
+     * positive, and it fails silently: the generator appends a counter suffix rather than
      * refusing, so a legitimately named record becomes `api-2`. For externally assigned
      * identifiers `api`, `docs`, `demo` and `media` are not the edge, they are the middle.
      *
@@ -1312,7 +1498,7 @@ trait HasPolyslug
         $encoder = $this->polyslugEncoder();
 
         // Scoped to this model's type where the encoder can scope. A token belonging to a
-        // DIFFERENT model type then decodes to null — a clean 404 — rather than to an id this
+        // different model type then decodes to null — a clean 404 — rather than to an id this
         // model would resolve against its own table. The legacy decoders below stay untyped:
         // they exist to keep URLs from a previous encoder alive, and those tokens never had
         // an owner to check against.
@@ -1376,10 +1562,10 @@ trait HasPolyslug
     /**
      * The robots directive written for a locale this model's gate keeps out.
      *
-     * `none` is the historical answer and stays the default, but it is the STRONGER of
+     * `none` is the historical answer and stays the default, but it is the stronger of
      * the two statements available: per spec it means `noindex, nofollow`. The gate is
      * about indexability — it says a page must not appear in results. It says nothing
-     * about whether the links ON that page can be trusted, and `nofollow` asserts they
+     * about whether the links on that page can be trusted, and `nofollow` asserts they
      * cannot. For a draft, a gated preview or a tenant-internal page the wanted answer
      * is usually `noindex, follow`, which keeps the page out of the index while link
      * equity still flows through it.
@@ -1389,7 +1575,7 @@ trait HasPolyslug
      * which spelling was typed. A list may also hold string-backed enum cases, such as
      * laravel/head's `RobotsRule::NoIndex`; each one counts as its value.
      *
-     * The answer must still PREVENT INDEXING — it needs `noindex` or `none`. This is
+     * The answer must still prevent indexing — it needs `noindex` or `none`. This is
      * the branch for a page the gate hides, so a permissive directive would contradict
      * the reason the branch was entered, and an empty one is worse than permissive:
      * laravel/head renders no tag at all for it, and a page with no robots meta is
@@ -1414,9 +1600,9 @@ trait HasPolyslug
     }
 
     /**
-     * When this record's CONTENT last changed, for the sitemap's <lastmod>. Null emits none.
+     * When this record's content last changed, for the sitemap's <lastmod>. Null emits none.
      *
-     * ON THE TRAIT, NOT ON THE CONTRACT, for the reason polyslugRobotsDirective() is: an
+     * On the trait, not on the contract, for the reason polyslugRobotsDirective() is: an
      * application implementing Sluggable by hand keeps compiling and keeps emitting no
      * <lastmod>, which is what it had before. The sitemap reaches it through method_exists().
      *
@@ -1457,16 +1643,16 @@ trait HasPolyslug
     /**
      * The current slug row for a locale.
      *
-     * Reads an EAGER-LOADED `slugs` relation when one is present, so a rendered list pays
+     * Reads an eager-loaded `slugs` relation when one is present, so a rendered list pays
      * one query for every model instead of one per model per read. Without this, `slugs()`
-     * hands back the relation BUILDER and every read issues a fresh SELECT — which made
+     * hands back the relation builder and every read issues a fresh SELECT — which made
      * `->with('slugs')` actively worse than not eager-loading at all: one extra query, and
      * nothing using it.
      *
      * `$fresh` is not an optimization switch, it is a correctness one, and it is why this
      * takes a parameter rather than always preferring the relation. A loaded collection
-     * describes the world at the moment it was loaded. Every READ may use it; no WRITE may,
-     * because a write decides what to store against what is current NOW — and `writeSlug()`
+     * describes the world at the moment it was loaded. Every read may use it; no write may,
+     * because a write decides what to store against what is current now — and `writeSlug()`
      * re-asks inside its retry loop precisely because a concurrent writer may have moved the
      * row since the previous attempt. Answering that from a cached collection would make the
      * retry loop consult the same stale row forever.
@@ -1477,7 +1663,7 @@ trait HasPolyslug
 
         if (! $fresh && $this->relationLoaded('slugs')) {
             // sortByDesc('id')->first(), matching the query's `orderByDesc('id')` exactly.
-            // Taking the first match instead would take the OLDEST current row and disagree
+            // Taking the first match instead would take the oldest current row and disagree
             // with every non-eager read — a divergence no correctness test would show,
             // because both answers are real slugs of the same model.
             return $this->currentSlugsInMemory($locale)->sortByDesc('id')->first();
@@ -1599,7 +1785,7 @@ trait HasPolyslug
         $length = $options['length'] ?? null;
         $alphabet = $options['alphabet'] ?? null;
 
-        // Each setting the override leaves out falls back to the one the ENCODER already
+        // Each setting the override leaves out falls back to the one the encoder already
         // carries, not to the class default: an override that names only an alphabet is asking
         // to change the alphabet, and one that names only a length is asking to change the
         // length. Resetting the other to its default would undo the application's own setting
@@ -1642,11 +1828,55 @@ trait HasPolyslug
      */
     private function polyslugEncodedKey(): string
     {
+        $identity = $this->polyslugConfig()->identity;
+
+        if ($identity !== null) {
+            return $this->polyslugIdentityToken($identity);
+        }
+
         $encoder = $this->polyslugEncoder();
 
         return $encoder instanceof StoresTokensPerRecord
             ? $encoder->encodeWithin($this->getMorphClass(), $this->polyslugKeyString())
             : $encoder->encode($this->polyslugKeyString());
+    }
+
+    /**
+     * The token the identity column gives this record's URL.
+     *
+     * @throws InvalidArgumentException when the column holds nothing a URL can carry as a token
+     */
+    private function polyslugIdentityToken(string $column): string
+    {
+        $value = $this->polyslugColumnValue($this->getAttribute($column));
+        $token = is_scalar($value) ? (string) $value : '';
+
+        if (preg_match('/^[A-Za-z0-9-]+$/D', $token) !== 1) {
+            throw new InvalidArgumentException(sprintf(
+                'The identity column [%s] of %s holds [%s], which a URL cannot carry as its token: a token takes letters, digits and hyphens, at least one of them.',
+                $column,
+                static::class,
+                $token,
+            ));
+        }
+
+        return $token;
+    }
+
+    /**
+     * A slug computed from the source of one locale, the way a stored one would be generated
+     * except that no uniqueness is asked for: `stored: false` requires `unique: false`.
+     */
+    private function polyslugComputedSlug(PolyslugConfig $config, string $locale): string
+    {
+        return Container::getInstance()->make(SlugGenerator::class)->generate(
+            new SlugRequest(
+                source: $this->polyslugComputedSource($locale),
+                sluggableType: $this->getMorphClass(),
+                locale: $locale,
+            ),
+            $config,
+        );
     }
 
     private function polyslugKeyString(): string
@@ -1705,7 +1935,7 @@ trait HasPolyslug
     /**
      * The stored scope key for a set of column values.
      *
-     * ONE builder for both directions on purpose: the write path fills it from the model's
+     * One builder for both directions on purpose: the write path fills it from the model's
      * own attributes, the read path from whatever the caller named. A key assembled in two
      * places is a key that eventually disagrees with itself, and the disagreement would
      * look like "no such slug".

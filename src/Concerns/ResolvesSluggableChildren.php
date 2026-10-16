@@ -16,7 +16,7 @@ use Polyslug\Contracts\Sluggable;
  * resolve the child through the parent's relation, narrowed by the route value. Laravel narrows
  * it by comparing the whole value with the child's key column, and a Polyslug route key is a slug
  * and a token, so the comparison never matches and the child answers 404. With this trait on the
- * PARENT model, the value is resolved the way the child's own binding resolves it, its resolution
+ * parent model, the value is resolved the way the child's own binding resolves it, its resolution
  * gate included, and the relation is narrowed to that record: a child of another parent still
  * answers 404. A binding that names a field (`{page:uuid}`) is resolved and narrowed the same way,
  * by that field. A child that is not a Polyslug model keeps Laravel's own resolution.

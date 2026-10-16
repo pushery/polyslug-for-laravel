@@ -13,7 +13,7 @@ use ReflectionClass;
  * The seam through which a host replaces a Polyslug model with its own subclass.
  *
  * `polyslug.models` maps the package class to the host's, and the package reaches its models
- * only through model() and resolve(). So the subclass comes back on EVERY path — a query, a new
+ * only through model() and resolve(). So the subclass comes back on every path — a query, a new
  * row, the `slugs` relation — and not only where the host queries it itself. One path that named
  * the package class directly would give the host two views of one table.
  *

@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Schema;
  * it has.
  *
  * `$table->string('token')` states no collation, so the column inherits the connection's.
- * On MySQL that default is case-INSENSITIVE, and the consequence is not cosmetic:
+ * On MySQL that default is case-insensitive, and the consequence is not cosmetic:
  * `TokenAlphabet` explicitly invites a mixed-case alphabet ("An application that wants the
  * entropy back passes its own alphabet") and its validation admits `A-Z`. An application
  * that takes the invitation gets a 62-character alphabet that the database counts as 36 —
@@ -30,7 +30,7 @@ use Illuminate\Support\Facades\Schema;
  * So MySQL is the one engine out of step, and this migration is scoped to it. The control
  * that makes those zeros trustworthy: the same lookup for the exact string returns 1.
  *
- * THE DIRECTION IS SAFE, AND ONLY THIS DIRECTION IS. Case-insensitive to binary SPLITS
+ * The direction is safe, and only this direction is. Case-insensitive to binary splits
  * equivalence classes: every pair that was distinct under the old collation stays distinct
  * under the new one, so a unique index that held before still holds. The reverse would
  * merge them and could fail on live data. Nothing here rewrites a row.
@@ -84,7 +84,7 @@ return new class extends Migration
                 continue;
             }
 
-            // Back to what the column INHERITED, which is the table's own default — that is
+            // Back to what the column inherited, which is the table's own default — that is
             // the state up() found, not a guess at one. Restoring a hard-coded
             // `utf8mb4_unicode_ci` would hand back a collation the installation may never
             // have had.
@@ -93,7 +93,7 @@ return new class extends Migration
     }
 
     /**
-     * The column's REAL shape, read rather than assumed. `string('token')` is varchar(255)
+     * The column's real shape, read rather than assumed. `string('token')` is varchar(255)
      * today, but a consumer may have narrowed or widened it, and an ALTER that restates the
      * type from memory would silently resize the column while claiming to touch only its
      * collation.

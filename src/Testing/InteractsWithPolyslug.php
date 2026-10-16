@@ -12,13 +12,13 @@ use Polyslug\Contracts\Sluggable;
  * Test assertions for sluggable models. Mix into a Laravel/Testbench test case:
  * `uses(InteractsWithPolyslug::class);` (Pest) or `use InteractsWithPolyslug;` (PHPUnit).
  *
- * THE ONE SHIPPED FILE ALLOWED TO IMPORT Illuminate\Foundation, and the allowance is
+ * The one shipped file allowed to import Illuminate\Foundation, and the allowance is
  * narrow. `Illuminate\Foundation` has no split package — it exists only inside
  * laravel/framework, which this package deliberately does not require. Two things make
  * it safe here and nowhere else: the import feeds only the `@mixin` below, so nothing
  * ever loads the class at runtime (a `use` statement is an alias, not an include); and
  * the trait runs exclusively from a consumer's own test suite, where the full framework
- * is present by definition. Any OTHER shipped file importing Foundation is a real defect
+ * is present by definition. Any other shipped file importing Foundation is a real defect
  * that would fatal on a lean install; this file is the single exception, and it stays the
  * single one.
  *

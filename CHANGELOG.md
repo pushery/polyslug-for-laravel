@@ -4,6 +4,26 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-10-16
+
+### ✨ Added
+
+- **`polyslug:doctor` notes a Sqids model that leaves out an option the application sets.** A model's Sqids options are a space of their own: an `alphabet` or `min_length` it leaves out takes the Sqids default, not the value under `polyslug.sqids`, and every URL the model has issued was encoded that way. The doctor now names such a model with a `!` line and does not fail, and the attribute reference, the configuration reference and the identity-encoder page say how a left-out option is filled.
+- **Addresses for a read model.** `#[Polyslug(identity: 'column')]` takes the token of the URL from a column of the record instead of the encoded primary key, and a URL resolves by that column, so a record written again under a new key keeps its address. `stored: false` computes the slug from the source on every call and writes nothing to `polyslug_slugs`: the old URL of a renamed record resolves by its token and is redirected to the current slug, and there is no history. It requires `unique: false`, except on a slugless model, which then writes no row at all. A record that holds its text per language overrides `polyslugComputedSource($locale)`, and `hreflangLinks()`, `polyslugUrls()` and `polyslug:sitemap` work without a single slug row.
+- **Gone without a record.** A token that resolves to nothing answers with `polyslug.gone.status` (410 by default) instead of 404 when the model's `polyslugIsGoneAddress($token)` says it was withdrawn, so a record that is no longer stored can still answer as gone.
+- **`Polyslug\Support\TailTokens`** builds a short token from the end of a longer id and settles two ids that end alike: the one that sorts first, the older one for a ULID, keeps the short token, and the others answer under their whole id.
+- **The sitemap as a service.** `Polyslug\Sitemaps\Sitemap` builds a sitemap from the sources, the storage and the root it is given, so an application keeps one sitemap per tenant, each under its own host. Every source is cut into parts by the keys of its records in byte order, and `rebuild($source, $keys)` builds again only the part whose range holds each key, cutting the source anew when a part outgrows its ceilings or empties while others remain. `SluggableSource` lists sluggable models, an application's own `Polyslug\Contracts\SitemapSource` lists anything else, a read model without `Sluggable` among them, and the parts go into files beside a path (`FileSitemapStorage`), into a table of the application's (`DatabaseSitemapStorage`) or into any `Polyslug\Contracts\SitemapStorage`. `index()` and `document($name)` serve a sitemap kept in a table.
+
+### 🔧 Changed
+
+- **`polyslug:sitemap` cuts its parts by key.** The command is the sitemap service with one source over files, and it writes the parts the service writes into any other storage. The parts are cut as before, except that the addresses of one record now always share a part. The index names the latest `<lastmod>` of each part whose records carry one, and an address served under two codes is submitted once.
+- **A configuration for the slug generator alone needs no `source`.** The rule that a model must name its source columns, unless it is slugless, is now checked where a model's configuration is resolved, so `PolyslugConfig::fromAttribute(new Polyslug(unique: false))` builds a configuration for `DefaultSlugGenerator::generate()` without a column the caller does not have. A model that leaves `source` out is refused as before.
+
+### 🐛 Fixed
+
+- **`polyslug:doctor` names a token setting of the wrong kind.** A length is read only as an integer and an alphabet only as a string, so `'24'` from `env()`, `24.0` or `' 24'` kept the default length while the doctor called the token schemes valid. It now names every such value under `random_token`, `sequential_token`, `short_links` and `sqids`, and in the `encoderOptions` of each registered model where its encoder reads them, with the value Polyslug uses instead, and fails. Nothing changes at runtime: a value of the wrong kind still takes the default rather than being coerced into one a scheme would refuse on the first rendered URL.
+- **On PostgreSQL with a schema per tenant, `polyslug:doctor` finds its tables and the unique indexes the slugs depend on.** With `search_path` set to `tenant, public` and the tables in `public`, Laravel's schema builder looks only in `current_schema()`, while every query walks the whole path, so the doctor reported the token and short-link tables missing and both unique indexes of the slugs as well. It now looks a table up the way a query finds it.
+
 ## [0.22.1] - 2026-10-05
 
 ### 🐛 Fixed

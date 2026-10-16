@@ -14,7 +14,7 @@ use Closure;
 final readonly class SlugRequest
 {
     /**
-     * @param  list<string>|null  $reserved  The reserved words FOR THIS MODEL — the inherited
+     * @param  list<string>|null  $reserved  The reserved words for this model — the inherited
      *                                       list after the model's own polyslugReservedWords()
      *                                       has had its say. null means the caller resolved
      *                                       none and the generator falls back to the inherited
