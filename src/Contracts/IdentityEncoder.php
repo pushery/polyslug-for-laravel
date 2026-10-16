@@ -17,7 +17,7 @@ interface IdentityEncoder
 
     /**
      * Decode a token back to a model key, or null when the token is invalid or
-     * non-canonical. Callers MUST treat null as "not found" (→ 404) and never as a
+     * non-canonical. Callers must treat null as "not found" (→ 404) and never as a
      * cue to guess a nearby key — a leaked neighbor must not silently resolve.
      */
     public function decode(string $token): int|string|null;

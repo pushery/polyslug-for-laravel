@@ -20,7 +20,7 @@ interface BulkIdentityDecoder extends IdentityEncoder
      * Decode many tokens of the untyped lane, in as few round trips as the implementation can
      * manage.
      *
-     * The result MUST be what decode() answers for each token in turn. A token decode() answers
+     * The result must be what decode() answers for each token in turn. A token decode() answers
      * with null is absent from the result.
      *
      * @param  list<string>  $tokens
@@ -30,7 +30,7 @@ interface BulkIdentityDecoder extends IdentityEncoder
     public function decodeMany(array $tokens): array;
 
     /**
-     * Decode many tokens WITHIN one morph type, the way decodeWithin() decodes one: a token that
+     * Decode many tokens within one morph type, the way decodeWithin() decodes one: a token that
      * belongs to another type is absent from the result, as is a token nothing holds.
      *
      * @param  list<string>  $tokens

@@ -13,7 +13,7 @@ use Polyslug\Exceptions\MisconfiguredPolyslug;
  * The resolved slug configuration for a model, normalized from the #[Polyslug]
  * attribute or a polyslug() method override.
  *
- * THE CONSTRUCTOR IS THE VALIDATION SEAM, and deliberately so: a polyslug() override builds
+ * The constructor is the validation seam, and deliberately so: a polyslug() override builds
  * one of these directly, so a rule checked in the attribute instead would hold for a static
  * declaration and not for a per-tenant one.
  */
@@ -44,12 +44,14 @@ final readonly class PolyslugConfig
         public bool $reclaimActive = false,
         public bool $slugless = false,
         public bool $preserveCase = false,
+        public bool $stored = true,
+        public ?string $identity = null,
     ) {
-        // An idLess URL is the slug alone, so an idLess model resolves BY its slug and the
+        // An idLess URL is the slug alone, so an idLess model resolves by its slug and the
         // slug must stay unique. `unique: false` (records may share a slug) is therefore only
         // valid for a non-idLess model, whose encoded id disambiguates.
         // Refused rather than allowed with a warning, and the reason is a measurable engine
-        // divergence rather than a preference. The unique index folds with the DATABASE's
+        // divergence rather than a preference. The unique index folds with the database's
         // `lower()`, and those do not agree: PostgreSQL folds non-ASCII letters, SQLite does
         // not. A folded slug hides that — every stored value is already lower-case, so both
         // engines see the same thing. Storing `Ärger` unfolded would make it collide with
@@ -80,7 +82,7 @@ final readonly class PolyslugConfig
             throw MisconfiguredPolyslug::idLessRequiresUnique();
         }
 
-        // Rejected rather than ignored. On a non-idLess model a retired slug is ALREADY free
+        // Rejected rather than ignored. On a non-idLess model a retired slug is already free
         // to reuse — the encoded id disambiguates — so reclaim would change nothing at all.
         // A flag that silently does nothing is worse than one that is refused: whoever set it
         // believes a guarantee has been relaxed, and would only find out otherwise from a
@@ -103,10 +105,10 @@ final readonly class PolyslugConfig
             throw MisconfiguredPolyslug::sluglessExcludesIdLess();
         }
 
-        // The three below would each do NOTHING on a slugless model, and are refused for the
+        // The three below would each do nothing on a slugless model, and are refused for the
         // reason the reclaim checks give: whoever set one believes a behavior changed, and
         // the only way they would find out otherwise is from the behavior they were trying
-        // to change. maxLength is the one worth naming — it trims the SLUG, so on a model
+        // to change. maxLength is the one worth naming — it trims the slug, so on a model
         // whose URL is a token it is the most natural wrong guess about why the URL is long.
         if ($this->slugless && $this->maxLength !== null) {
             throw MisconfiguredPolyslug::sluglessExcludesMaxLength();
@@ -124,24 +126,38 @@ final readonly class PolyslugConfig
             throw MisconfiguredPolyslug::sluglessTakesNoSource();
         }
 
-        // Stated here rather than left to the attribute signature, which cannot express it:
-        // source has to be optional for a slugless model to declare none, and the moment it
-        // is optional, omitting it on an ordinary model becomes a silent empty slug for every
-        // record instead of a refusal at the first save.
-        if (! $this->slugless && $this->source === []) {
-            throw MisconfiguredPolyslug::sourceIsRequired();
+        // The identity column is the token, so whatever would otherwise build the token from
+        // the key is refused rather than left to do nothing, and so is idLess, which drops the
+        // token the column supplies.
+        if ($this->identity !== null && ($this->encoder !== null || $this->encoderOptions !== [])) {
+            throw MisconfiguredPolyslug::identityExcludesEncoder();
         }
+
+        if ($this->identity !== null && $this->idLess) {
+            throw MisconfiguredPolyslug::identityExcludesIdLess();
+        }
+
+        // A computed slug is written nowhere, so every option that describes what happens to a
+        // stored slug would do nothing on it, and idLess, which looks the stored slug up, could
+        // not resolve a single URL.
+        if (! $this->stored) {
+            $this->assertComputable();
+        }
+
+        // The source requirement of a model is checked where a model's configuration is
+        // resolved (PolyslugConfigResolver), not here: a configuration handed to the slug
+        // generator alone, with a source of its own in the request, has no columns to name.
     }
 
     /**
      * The same configuration, except it will not take a name another record still holds.
      *
-     * `reclaimActive` is a property of the MODEL, but taking a name is a property of the
-     * WRITE. A webhook carries a handover the source has already made, so taking is correct.
+     * `reclaimActive` is a property of the model, but taking a name is a property of the
+     * write. A webhook carries a handover the source has already made, so taking is correct.
      * A backfill carries no such thing: two existing records wanting one name is a conflict
      * in the data, and whoever takes there decides ownership by row order, silently.
      *
-     * Only ever narrowing. Turning reclaimActive ON for one call is not offered, because it
+     * Only ever narrowing. Turning reclaimActive on for one call is not offered, because it
      * requires `reclaim` and would let a caller assemble a combination the config constructor
      * refuses — a validity rule that can be sidestepped per call is not a rule.
      */
@@ -170,6 +186,8 @@ final readonly class PolyslugConfig
             reclaimActive: false,
             slugless: $this->slugless,
             preserveCase: $this->preserveCase,
+            stored: $this->stored,
+            identity: $this->identity,
         );
     }
 
@@ -209,7 +227,28 @@ final readonly class PolyslugConfig
             reclaimActive: $attribute->reclaimActive,
             slugless: $attribute->slugless,
             preserveCase: $attribute->preserveCase,
+            stored: $attribute->stored,
+            identity: $attribute->identity,
         );
+    }
+
+    /**
+     * The checks of a slug that is computed rather than stored. A slugless model may set
+     * `stored: false` as well, and then writes no row at all: its URL is the token alone.
+     */
+    private function assertComputable(): void
+    {
+        if ($this->idLess) {
+            throw MisconfiguredPolyslug::computedSlugExcludesIdLess();
+        }
+
+        if ($this->unique && ! $this->slugless) {
+            throw MisconfiguredPolyslug::computedSlugMustNotBeUnique();
+        }
+
+        if ($this->immutable) {
+            throw MisconfiguredPolyslug::computedSlugExcludesImmutable();
+        }
     }
 
     /**

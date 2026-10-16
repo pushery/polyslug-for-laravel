@@ -56,7 +56,7 @@ final class PolyslugServiceProvider extends ServiceProvider
      * carries less. It lives here rather than on RandomTokenScheme because it is a property of
      * this feature, not of the scheme, which serves both stores.
      */
-    private const int SHORT_LINK_LENGTH = 10;
+    public const int SHORT_LINK_LENGTH = 10;
 
     public static function ignoreMigrations(): void
     {
@@ -72,7 +72,7 @@ final class PolyslugServiceProvider extends ServiceProvider
         // singleton here would keep the first request's or job's instance, memo and all.
         $this->app->scoped(IdentityEncoder::class, static function (Application $app): IdentityEncoder {
             // The fallback matters as much as the config file: mergeConfigFrom covers a
-            // consumer who never published the config, but a config PUBLISHED from an older
+            // consumer who never published the config, but a config published from an older
             // version has no 'encoder' key at all and lands here. Both paths must arrive at
             // the leak-free encoder, or "safe by default" holds only for new installs.
             $encoder = $app->make(ConfigRepository::class)->get('polyslug.encoder', RandomTokenEncoder::class);
@@ -123,9 +123,9 @@ final class PolyslugServiceProvider extends ServiceProvider
             $options = self::tokenOptions($app, 'polyslug.short_links');
             $scheme = ConfigChoice::read('short_links.scheme', ['random', 'sequential'], 'random');
 
-            // The default length is the SCHEME's, not the section's, and that is not a detail.
+            // The default length is the scheme's, not the section's, and that is not a detail.
             // One setting serves both schemes here, and the sensible starting width differs by
-            // an order of magnitude: ten random characters is a short link, ten COUNTED ones
+            // an order of magnitude: ten random characters is a short link, ten counted ones
             // is `0000000000` for the first record. A section-level default would hand that to
             // anyone who switched the scheme and did not also think to change the length.
             return $scheme === 'sequential'
@@ -206,14 +206,14 @@ final class PolyslugServiceProvider extends ServiceProvider
         //
         // $action is Closure|array|string|null rather than `callable`, which is what this
         // said before and was wider than the framework. The one callable shape that is
-        // none of those three — an invokable OBJECT — does not reach a controller: it
+        // none of those three — an invokable object — does not reach a controller: it
         // fatals inside Router::createRoute with "Cannot use object of type ... as array"
-        // at REGISTRATION time. Advertising it was an invitation to a fatal, and it is
+        // at registration time. Advertising it was an invitation to a fatal, and it is
         // also the type RouteRegistrar declares for its own get(), so both chain
         // positions now say the same thing.
         $router->macro('polyslug', fn (string $uri, array|string|Closure|null $action = null): Route => $router->get($uri, $action)->middleware([SubstituteBindings::class, 'polyslug.canonical']));
 
-        // And on the REGISTRAR, because Macroable declares $macros inside the trait: Router
+        // And on the registrar, because Macroable declares $macros inside the trait: Router
         // and RouteRegistrar keep separate bags, so registering on one leaves the other
         // throwing BadMethodCallException. RouteRegistrar is what every chained form lands
         // on — Route::middleware(...)->polyslug(...), Route::prefix(...)->polyslug(...) —
@@ -239,7 +239,7 @@ final class PolyslugServiceProvider extends ServiceProvider
     }
 
     /**
-     * laravel/head is an OPTIONAL companion, never a dependency. When the host has it,
+     * laravel/head is an optional companion, never a dependency. When the host has it,
      * a Polyslug model can describe the four <head> facts Polyslug alone knows:
      *
      *     Head::polyslug($page);   // canonical + hreflang + og:locale + indexability
@@ -264,7 +264,7 @@ final class PolyslugServiceProvider extends ServiceProvider
             // repeats, and laravel/head's meta() cannot repeat a key — it stores tags in
             // an array keyed by attribute|key|media, so the second call overwrites the
             // first. TagRegistry::extend() is the sanctioned answer, and the only one:
-            // both render paths iterate the REGISTRY, so a builder that is not registered
+            // both render paths iterate the registry, so a builder that is not registered
             // is never rendered no matter what data it holds.
             //
             // callAfterResolving, not make(): laravel/head may register after this
@@ -282,9 +282,9 @@ final class PolyslugServiceProvider extends ServiceProvider
     private function registerPublishing(): void
     {
         // Resolve publish targets through the Application contract's path methods
-        // (available via illuminate/contracts), NOT the config_path()/database_path()/
+        // (available via illuminate/contracts), not the config_path()/database_path()/
         // resource_path()/lang_path() global helpers. Those are Foundation helpers,
-        // shipped ONLY with laravel/framework — which this package does not require —
+        // shipped only with laravel/framework — which this package does not require —
         // so the helper form would freeze a wrong dependency contract and fatal in a
         // non-Foundation host. The method form is behavior-identical.
         //
@@ -313,12 +313,12 @@ final class PolyslugServiceProvider extends ServiceProvider
     }
 
     /**
-     * Lay the shipped defaults UNDER a published config file, all the way down.
+     * Lay the shipped defaults under a published config file, all the way down.
      *
      * NOT `mergeConfigFrom()`, and the difference only shows up months later. Laravel's
      * own merge is a single `array_merge` at the top level, so it asks one question per
      * top-level key: is it there? A host that published the config file has every top-level
-     * key, which means a key added INSIDE one of those blocks by a later release never
+     * key, which means a key added inside one of those blocks by a later release never
      * arrives. The block the host published wins whole.
      *
      * The failure is silent in both directions that matter. Nothing errors, nothing logs —
@@ -327,7 +327,7 @@ final class PolyslugServiceProvider extends ServiceProvider
      * security default never takes effect. Measured on a real upgrade: a routing flag added
      * one minor after a host published its config stayed `null` for eleven releases.
      *
-     * NOTE: RECURSING IS NOT ENOUGH ON ITS OWN — a LIST is a value, never a structure.
+     * Note: recursing is not enough on its own — a list is a value, never a structure.
      * `array_merge_recursive()` concatenates lists and `array_replace_recursive()` merges
      * them by index. Measured, not recalled — a host narrowing a shipped `['web', 'api']`
      * to `['admin']` gets back `['web', 'api', 'admin']` from the first and
@@ -338,7 +338,7 @@ final class PolyslugServiceProvider extends ServiceProvider
      * `array_is_list([])` is true, which is the behavior you want here: an empty array is a
      * host saying "none", and descending into it could only re-introduce what it emptied.
      *
-     * NOTE THE EARLY RETURN, because it bounds what this can rescue. A host with a CACHED
+     * Note the early return, because it bounds what this can rescue. A host with a cached
      * config is never merged at all — that is the framework's design, not this method's
      * limit. For those installations the published file is the whole truth, which is why a
      * package that reads a nested key needs its read-site fallback to agree with the
@@ -357,7 +357,7 @@ final class PolyslugServiceProvider extends ServiceProvider
 
         // Both sides come off disk or out of the container, so neither is provably
         // string-keyed here — a config array is just an array. The recursion below is
-        // written for exactly that: it asks whether a value is a LIST, never whether a key
+        // written for exactly that: it asks whether a value is a list, never whether a key
         // is a string.
         $repository->set($key, $this->mergeConfigSections(
             is_array($shipped) ? $shipped : [],
@@ -379,7 +379,7 @@ final class PolyslugServiceProvider extends ServiceProvider
                 continue;
             }
 
-            // Recurse only where BOTH sides are maps. If either is a list, or the published
+            // Recurse only where both sides are maps. If either is a list, or the published
             // value is a scalar or an explicit null, what the host wrote stands. An explicit
             // null is a value like any other here, which keeps "write => null to switch this
             // off" working exactly as a shipped config file describes it.

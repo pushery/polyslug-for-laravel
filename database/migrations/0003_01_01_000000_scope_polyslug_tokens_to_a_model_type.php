@@ -14,17 +14,17 @@ return new class extends Migration
      * Give a stored token an owner.
      *
      * Until now polyslug_tokens mapped `key_value -> token` and key_value was the primary-key
-     * VALUE alone. The morph type was not part of it, so two models whose ids collide — which
+     * value alone. The morph type was not part of it, so two models whose ids collide — which
      * is every pair of tables, at id 1 — shared a row and therefore the same token. Resolution
      * stayed correct, because the route names the model type, but the URL of one model was
      * enough to construct the URL of every other Polyslug model holding that id. That is
      * weaker than what RandomTokenEncoder advertises, and polyslug_short_links — solving the
      * same problem one table over — keys on the full target instead.
      *
-     * THIS CHANGES WHICH TOKEN A RECORD GETS, and only a backfill keeps that from breaking
+     * This changes which token a record gets, and only a backfill keeps that from breaking
      * published URLs. The backfill is the substance of this migration, not a courtesy: without
      * it, the first render after deploying would find no row for (type, id) and mint a new
-     * token for EVERY record.
+     * token for every record.
      *
      * key_type is NOT NULL with an empty default rather than nullable. Nulls do not collide in
      * a unique index on any of the three engines, so a nullable column would let two rows hold
@@ -49,7 +49,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        // Reversible only as far as the SCHEMA goes, and the difference is worth stating: two
+        // Reversible only as far as the schema goes, and the difference is worth stating: two
         // rows may legitimately share a key_value now, so restoring a unique index over it
         // alone can fail against data this migration made valid. Rolling back therefore also
         // drops the rows that would collide — the ones a second model claimed after the
@@ -67,10 +67,10 @@ return new class extends Migration
     /**
      * Give every existing token the type of the model that holds it, read from polyslug_slugs.
      *
-     * DETERMINISTIC where it can be, and it can be almost everywhere: polyslug_slugs already
+     * Deterministic where it can be, and it can be almost everywhere: polyslug_slugs already
      * records (sluggable_type, sluggable_id), so the owner of a key is a lookup rather than a
      * guess. Where several types hold the same id — the very collision this migration exists
-     * to separate — the OLDEST slug row wins. One of them has to keep the token, nothing in
+     * to separate — the oldest slug row wins. One of them has to keep the token, nothing in
      * the data says which deserves it more, and "whoever published first keeps their URL" is
      * the answer that breaks the fewest links.
      *
@@ -84,7 +84,7 @@ return new class extends Migration
      * ORDER BY + LIMIT tiebreak inside a correlated UPDATE subquery is not something all three
      * engines agree on.
      *
-     * Two queries per chunk rather than two per ROW: one to read the owners of the whole
+     * Two queries per chunk rather than two per row: one to read the owners of the whole
      * chunk's keys, one UPDATE per distinct type. On a table with a few types and many rows —
      * which is every application this runs on — that is the difference between a migration
      * that finishes and one an operator kills.
@@ -101,11 +101,11 @@ return new class extends Migration
                     ->values()
                     ->all();
 
-                // Ordered by id so the OLDEST slug row is seen first, and $claimed is what
+                // Ordered by id so the oldest slug row is seen first, and $claimed is what
                 // makes "first seen wins" the tiebreak — in PHP, where all three engines
                 // behave the same.
                 //
-                // Grouped by TYPE while reading, so the write below is one UPDATE per type
+                // Grouped by type while reading, so the write below is one UPDATE per type
                 // carrying every key that type owns in this chunk. Collecting key => type
                 // first and inverting afterwards would look tidier and be wrong: PHP
                 // normalizes a numeric array key to an int, so the keys would come back out

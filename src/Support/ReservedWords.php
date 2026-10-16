@@ -10,7 +10,7 @@ use Illuminate\Routing\Router;
 use Polyslug\PolyslugConfig;
 
 /**
- * The reserved-word list a model INHERITS, before the model has had its say.
+ * The reserved-word list a model inherits, before the model has had its say.
  *
  * Extracted from DefaultSlugGenerator so HasPolyslug and the generator resolve the same
  * list from the same code. They both need it and they must not disagree: the trait

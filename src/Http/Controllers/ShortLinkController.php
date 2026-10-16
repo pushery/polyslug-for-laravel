@@ -16,7 +16,7 @@ use Polyslug\Models\PolyslugShortLink;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * Resolves a /go/{token} short link to its model and 301s to the model's CURRENT
+ * Resolves a /go/{token} short link to its model and 301s to the model's current
  * canonical URL (built by the bound PolyslugUrlResolver), with the request's query string
  * carried over. Route it yourself:
  *
@@ -45,7 +45,7 @@ final class ShortLinkController
             throw new NotFoundHttpException;
         }
 
-        // Resolve THROUGH the visibility gate — a short link must not reach a row the
+        // Resolve through the visibility gate — a short link must not reach a row the
         // request may not see (no cross-tenant / draft existence oracle on /go).
         $model = $prototype->polyslugResolveByKey($link->sluggable_id);
 

@@ -63,7 +63,7 @@ final readonly class TokenAlphabet
         }
 
         // Two unreserved characters are taken all the same. `_` separates a slug from its
-        // token, and the read path splits at the LAST one, so a token containing it is cut and
+        // token, and the read path splits at the last one, so a token containing it is cut and
         // never found. `.` lets a token be the whole segment `.` or `..`, which a browser
         // removes from the path before the request is sent.
         if (str_contains($this->alphabet, Polyslug::DELIMITER) || str_contains($this->alphabet, '.')) {
@@ -87,7 +87,7 @@ final readonly class TokenAlphabet
     }
 
     /**
-     * The n-th token, counting from 1, in BIJECTIVE base-N.
+     * The n-th token, counting from 1, in bijective base-N.
      *
      * Bijective rather than ordinary positional notation, and that is the whole reason this
      * method is not two lines of base_convert(). Ordinary notation cannot write a leading
@@ -117,7 +117,7 @@ final readonly class TokenAlphabet
     }
 
     /**
-     * How many tokens exist that are SHORTER than the given length — the number to start
+     * How many tokens exist that are shorter than the given length — the number to start
      * counting from when a scheme is told never to go below it.
      *
      * @throws InvalidArgumentException when the answer would exceed what an int can hold,

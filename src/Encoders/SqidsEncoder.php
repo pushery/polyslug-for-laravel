@@ -13,7 +13,7 @@ use Sqids\Sqids;
 /**
  * Encodes integer keys with Sqids.
  *
- * This is OBFUSCATION, NOT SECURITY: a Sqids token is reversible by anyone who knows
+ * This is obfuscation, not security: a Sqids token is reversible by anyone who knows
  * the alphabet, and it still leaks row count and growth. Use a leak-free encoder
  * (UUID, ULID, random token) when count or creation time must not be inferable.
  */
@@ -42,7 +42,7 @@ final readonly class SqidsEncoder implements IdentityEncoder
                 throw new InvalidArgumentException("The Sqids encoder requires integer keys; got [{$id}].");
             }
 
-            // ctype_digit() says nothing about MAGNITUDE, and (int) SATURATES at PHP_INT_MAX
+            // ctype_digit() says nothing about magnitude, and (int) saturates at PHP_INT_MAX
             // rather than failing -- so a twenty-digit key and PHP_INT_MAX itself would encode
             // to the same token. Two records, one URL, and whichever loses decodes back to a
             // key it does not own. Refused here rather than downstream, because Sqids' own

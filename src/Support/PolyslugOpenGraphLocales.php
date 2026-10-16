@@ -10,19 +10,19 @@ use Laravel\Head\Tags\GroupedTagBuilder;
 use Laravel\Head\Tags\TagBuilder;
 
 /**
- * The Open Graph alternate-locale set, as ONE tag per locale.
+ * The Open Graph alternate-locale set, as one tag per locale.
  *
  * og:locale:alternate is the single Open Graph property that is legitimately
  * repeated: a page in four languages carries three of them. laravel/head's generic
  * meta() cannot express that, and not by oversight — MetaTags keys every tag by
- * attribute|key|media, so a second call with the same key REPLACES the first. Four
+ * attribute|key|media, so a second call with the same key replaces the first. Four
  * locales therefore rendered exactly one alternate, the alphabetically last, and the
  * loop that wrote them looked correct on every reading.
  *
  * A repeated key needs a builder of its own, which is why laravel/head has
  * TagRegistry::extend(). This is that builder: it holds the set, and emits the set.
  *
- * ── WHY THIS FILE MAY NAME Laravel\Head AT ALL ───────────────────────────────────
+ * Why this file may name Laravel\Head at all:
  * It extends a laravel/head class, so it fatals if it is ever loaded without the
  * package installed. It cannot be: nothing references it by anything but ::class
  * (which does not autoload) outside PolyslugHead, and PolyslugHead itself is only
@@ -47,7 +47,7 @@ final class PolyslugOpenGraphLocales extends GroupedTagBuilder
 
     /**
      * No route attribute. The set is derived from a model at render time, and a route
-     * attribute is fixed when the route is DEFINED — there is no model there to ask.
+     * attribute is fixed when the route is defined — there is no model there to ask.
      * Returning an empty list also keeps TagRegistry::extend() from ever rejecting this
      * builder over a key another builder already claims.
      *
@@ -90,7 +90,7 @@ final class PolyslugOpenGraphLocales extends GroupedTagBuilder
     {
         return array_map(
             // The fourth argument is the data-inertia ownership key, and it must differ
-            // per tag: Inertia reconciles the head BY that key, so one shared key would
+            // per tag: Inertia reconciles the head by that key, so one shared key would
             // reintroduce on the client exactly the collapse this builder exists to fix.
             fn (string $locale): string => $tags->meta(
                 'property',

@@ -17,7 +17,7 @@ use Polyslug\Contracts\Sluggable;
  * routing below), so it serializes without SerializesModels and re-queries the rows on
  * the worker.
  *
- * ROUTABLE THROUGH PLAIN PROPERTIES, and deliberately not through Queueable. That trait
+ * Routable through plain properties, and deliberately not through Queueable. That trait
  * lives in illuminate/bus, which this package does not require, and it is not needed:
  * Dispatcher::dispatchToQueue and pushCommandToQueue resolve the connection and queue
  * through ReadsClassAttributes::getAttributeValue(), which falls back to a public property

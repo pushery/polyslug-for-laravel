@@ -20,14 +20,14 @@ return [
     | one INSERT the first time a given record's URL is rendered.
     |
     | SqidsEncoder is fully supported and is the right choice when you want short,
-    | deterministic tokens and the id space is not sensitive — but it is OBFUSCATION,
-    | NOT SECURITY: a Sqids token decodes straight back to the primary key, so every
+    | deterministic tokens and the id space is not sensitive — but it is obfuscation,
+    | not security: a Sqids token decodes straight back to the primary key, so every
     | URL leaks the key, the creation order and the growth rate, and an unguessable
     | URL becomes a constructible one. That is a decision to make deliberately, which
     | is why it is no longer what you get by not deciding. It needs the bcmath or gmp
     | extension; polyslug:doctor reports an encoder it cannot build.
     |
-    | SWITCHING ENCODERS WITHOUT BREAKING LINKS. Put the old encoder in
+    | Switching encoders without breaking links. Put the old encoder in
     | legacy_decoders below: existing URLs keep resolving through it, and the
     | canonical middleware 301s them to the new format as they are visited. Old links
     | self-heal instead of breaking.
@@ -48,14 +48,14 @@ return [
     | (RandomTokenEncoder / SequentialTokenEncoder above) and the /go/{token} short
     | link. Both draw from one of two schemes, and both read their settings here.
     |
-    | 'length' is a FLOOR in both schemes, never a ceiling. A width whose space fills
+    | 'length' is a floor in both schemes, never a ceiling. A width whose space fills
     | up yields to one character more rather than failing to issue a URL — so a short
     | setting is a real choice and not a trap that surfaces months later as a 500 on
     | a GET. 'alphabet' is null for the default base-36 set (0-9 a-z); pass your own
     | to change the character set: A-Z a-z 0-9 - ~, no character twice. `_` separates the
     | slug from the token in a URL and `.` can make a token the segment `.` or `..`.
     |
-    | RANDOM (the default) draws every token at random, so the URL says nothing about
+    | Random (the default) draws every token at random, so the URL says nothing about
     | the record: not its key, not its age, not how many others exist. This is the
     | scheme to keep whenever the URL is itself part of the access story — a share
     | link, an unlisted page, anything enumeration-sensitive.
@@ -67,10 +67,10 @@ return [
     |     10       ~3.7 quadrillion     /lists/k3f9dlq7xm
     |     16       ~8.0 x 10^24         /lists/k3f9dlq7xm2bv4tc  (default)
     |
-    | SEQUENTIAL hands out the shortest token not yet taken — 0, 1, … z, then 00, 01
+    | Sequential hands out the shortest token not yet taken — 0, 1, … z, then 00, 01
     | — which is the shortest URL that can exist for a given number of records, and
-    | what a link shortener is usually after. In exchange it is COMPLETELY
-    | PREDICTABLE: the token after k3f8 is k3f9, so the whole set can be walked, and
+    | what a link shortener is usually after. In exchange it is completely
+    | predictable: the token after k3f8 is k3f9, so the whole set can be walked, and
     | the token reports how many records exist and roughly when this one appeared.
     | Fine for public content nobody is hiding; wrong for anything the URL alone
     | protects. A minimum length does not change that — it moves where the counting
@@ -105,7 +105,7 @@ return [
     | it is the one most likely to want 'sequential' and a small length.
     |
     | 'scheme' is 'random' or 'sequential'; 'length' and 'alphabet' mean exactly what
-    | they mean above. A null length takes the SCHEME's own default — 10 characters
+    | they mean above. A null length takes the scheme's own default — 10 characters
     | random, 1 counted — rather than one number for both, because ten random
     | characters is a short link while ten counted ones is `0000000000`.
     |
@@ -123,15 +123,15 @@ return [
     |--------------------------------------------------------------------------
     |
     | Used only by the SqidsEncoder. A custom alphabet shuffles the token space
-    | per application — set one and keep it STABLE, because changing it changes
+    | per application — set one and keep it stable, because changing it changes
     | every previously generated URL. null uses the Sqids default alphabet.
     | min_length pads tokens to at least that many characters (0 = no padding).
     |
     | min_length reads the environment, and the alphabet deliberately does not. Padding is a
     | guessability floor: early ids encode to three or four characters, and a host that wants a
     | longer short link should not have to publish this file to get one -- publishing freezes
-    | every OTHER default in it too, including a security default a later release corrects. The
-    | alphabet is the opposite case. It is not a floor anyone tightens, it must stay STABLE for
+    | every other default in it too, including a security default a later release corrects. The
+    | alphabet is the opposite case. It is not a floor anyone tightens, it must stay stable for
     | the lifetime of every URL already issued, and a value picked up from a per-environment
     | variable is exactly how it would stop being stable.
     |
@@ -177,7 +177,7 @@ return [
     | The ceiling reads the environment, because contention is a property of the host rather than
     | of this package: an application writing slugs from a queue with many workers may need a
     | higher one, and getting it should not cost publishing this file -- publishing freezes every
-    | OTHER default in it too, including a security default a later release corrects.
+    | other default in it too, including a security default a later release corrects.
     |
     | Tested, not cast: `(int) env(...)` reads an unset variable and a typo as 0, and zero
     | attempts here means the first concurrent writer throws (the word `true` reads as 1, because
@@ -226,7 +226,7 @@ return [
     | shadowing real routes or sensitive words (login, admin, api, cart, ...). A
     | reserved base is suffixed (admin → admin-2) just like any other collision.
     |
-    | 'from_routes' additionally reserves the FIRST static segment of every registered
+    | 'from_routes' additionally reserves the first static segment of every registered
     | route ('/admin/users' reserves 'admin'), so a generated slug cannot shadow a real
     | route without you having to list them by hand. Off by default: it reads the route
     | table at generation time, and on an application with many routes that is work you
@@ -305,7 +305,7 @@ return [
     | model implementing Sluggable. Bind a Polyslug\Contracts\PolyslugUrlResolver in
     | the container to tell the command how to build an absolute URL per model+locale.
     |
-    | 'max_urls' and 'max_bytes' are the sitemap protocol's own ceilings for ONE file:
+    | 'max_urls' and 'max_bytes' are the sitemap protocol's own ceilings for one file:
     | 50,000 URLs and 50 MB uncompressed. Past either one the command writes numbered
     | parts next to --path and puts a <sitemapindex> at --path itself, so the limit is
     | never something the operator has to notice. Lower them if a CDN or a search
@@ -340,7 +340,7 @@ return [
     |
     | Which is why 'timeout' reads the environment: how long a chunk takes depends on the host's
     | table and its database, not on this package, and a host that needs a longer one should not
-    | have to publish this file to get it -- publishing freezes every OTHER default in it too.
+    | have to publish this file to get it -- publishing freezes every other default in it too.
     | null stays the default and leaves the framework's own in place. Tested rather than cast,
     | because `(int) env(...)` reads a typo as 0, and a zero timeout is not "no limit" here: a
     | value below 1 keeps the default.
@@ -362,7 +362,7 @@ return [
     | Open Graph writes a locale as language_TERRITORY ('en_US', 'pt_BR'). A plain
     | 'en' is outside that format, and a scraper that cannot parse the value does
     | not read a language from it — it falls back to its own default. So a locale
-    | with no territory gets NO og:locale tag rather than an unparseable one.
+    | with no territory gets no og:locale tag rather than an unparseable one.
     |
     | The territory is not something the package can invent: 'en' is en_US to one
     | site and en_GB to another, and asserting either would announce a regional
@@ -402,27 +402,27 @@ return [
     |--------------------------------------------------------------------------
     |
     | A slug-only URL carries no id, so the slug alone has to identify the record.
-    | On a model scoped with #[Polyslug(scope: ...)] that is only true WITHIN a
+    | On a model scoped with #[Polyslug(scope: ...)] that is only true within a
     | scope: the unique index is scope-bound, so /@alice/toolkit and /@bob/toolkit
     | may both hold "toolkit" legitimately.
     |
     | The resolve-query gate does not separate them. It answers a different
-    | question — what the ENVIRONMENT (session, tenant, request context) says is
+    | question — what the environment (session, tenant, request context) says is
     | visible — while a scope in a path segment is an argument of the resolution.
     | Hand it over by overriding polyslugResolutionScope() on the model.
     |
-    | Turn this on and a scoped model whose caller names no scope is REFUSED
+    | Turn this on and a scoped model whose caller names no scope is refused
     | instead of resolving to whichever row sorts first. Off by default because
     | switching it on refuses every scoped model that does not answer yet — the
     | right end state, but not something an update should do to you silently.
     |
     | It reads the environment, because this is the one switch in this file a host turns on to get
-    | STRICTER, and needing to publish the config to reach it would freeze every other default in
+    | stricter, and needing to publish the config to reach it would freeze every other default in
     | here at the same time -- including a security default a later release corrects.
     |
     | Compared against `true` rather than cast. Laravel's env() converts the strings `true` and
     | `false` and leaves everything else a string, so a bare cast would read
-    | `POLYSLUG_REQUIRE_SCOPE=off` as ON -- and this switch REFUSES resolutions, so a wrong reading
+    | `POLYSLUG_REQUIRE_SCOPE=off` as on -- and this switch refuses resolutions, so a wrong reading
     | breaks resolving instead of loosening it. Anything that is not an unambiguous `true` keeps
     | the documented default. Write `POLYSLUG_REQUIRE_SCOPE=true`; `1` is a string here and does
     | not enable it.

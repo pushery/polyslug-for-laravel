@@ -7,6 +7,7 @@ namespace Polyslug;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Attributes\Polyslug as PolyslugAttribute;
 use Polyslug\Contracts\ConfiguresPolyslug;
+use Polyslug\Exceptions\MisconfiguredPolyslug;
 use Polyslug\Exceptions\MissingPolyslugConfig;
 use ReflectionClass;
 
@@ -25,10 +26,30 @@ final class PolyslugConfigResolver
     public static function resolve(Model $model): PolyslugConfig
     {
         if ($model instanceof ConfiguresPolyslug) {
-            return $model->polyslug();
+            return self::forModel($model->polyslug());
         }
 
-        return self::$cache[$model::class] ??= self::fromAttribute($model::class);
+        return self::$cache[$model::class] ??= self::forModel(self::fromAttribute($model::class));
+    }
+
+    /**
+     * The configuration, once it is known to belong to a model.
+     *
+     * A model's slug is built from its source columns, so a model must name them; the one
+     * exception is a slugless model, whose URL is the token alone. Checked here rather than in
+     * the PolyslugConfig constructor, because a configuration handed to the slug generator alone
+     * brings its source in the request and has no column to name. Every model's configuration
+     * passes through here, the attribute and a polyslug() override alike, so omitting the source
+     * on a model is still refused before its first slug, instead of giving every record an empty
+     * one.
+     */
+    private static function forModel(PolyslugConfig $config): PolyslugConfig
+    {
+        if (! $config->slugless && $config->source === []) {
+            throw MisconfiguredPolyslug::sourceIsRequired();
+        }
+
+        return $config;
     }
 
     /**

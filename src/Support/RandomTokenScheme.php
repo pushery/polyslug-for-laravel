@@ -33,20 +33,20 @@ final readonly class RandomTokenScheme implements TokenScheme
     /**
      * Failed draws tolerated at one length before the next draw gets a character more.
      *
-     * THIS IS WHAT MAKES A SHORT LENGTH A REAL OPTION RATHER THAN A TRAP. Two characters is
+     * This is what makes a short length a real option rather than a trap. Two characters is
      * 1,296 tokens; a thousand records in, every draw is a coin flip, and at 1,296 the space
      * is gone. Without this, that ends as a CouldNotIssueToken thrown from encode() —
-     * which runs while a URL is being RENDERED, so an application that chose a short length
+     * which runs while a URL is being rendered, so an application that chose a short length
      * gets a 500 on a GET, months later, on whichever record happened to be next.
      *
-     * So a configured length is a FLOOR, not a ceiling: a length that keeps colliding yields
+     * So a configured length is a floor, not a ceiling: a length that keeps colliding yields
      * to one character more, which is 36x the space. Three draws is the tolerance — a length
      * a tenth full is left alone 99.9% of the time, one nine-tenths full gives way about
      * three times in four, which is where it should give way.
      *
      * Refusing instead, and telling the operator to raise the length, was rejected because
      * the moment it would speak is the moment nothing can be done quickly: the configured
-     * length is what EXISTING tokens were drawn at, so raising it helps new records only,
+     * length is what existing tokens were drawn at, so raising it helps new records only,
      * and until that deploy lands every new record is a 500.
      */
     private const int DRAWS_PER_LENGTH = 3;

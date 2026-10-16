@@ -17,12 +17,12 @@ return new class extends Migration
         // then share a slug, because a non-idLess URL (slug_id) resolves by the encoded id,
         // not the slug. The one_current index is left untouched: each model still keeps
         // exactly one current row. idLess models always stay enforce_unique = true — they
-        // resolve BY slug, so their slugs must remain unique.
+        // resolve by slug, so their slugs must remain unique.
         Schema::table('polyslug_slugs', function (Blueprint $table): void {
             $table->boolean('enforce_unique')->default(true);
         });
 
-        // Rebuild ONLY current_unique so it covers just the rows that enforce uniqueness; the
+        // Rebuild only current_unique so it covers just the rows that enforce uniqueness; the
         // mechanism mirrors 0001 per engine. one_current is deliberately not rebuilt.
         if (Schema::getConnection()->getDriverName() === 'mysql') {
             DB::statement('DROP INDEX polyslug_slugs_current_unique ON '.$this->table('polyslug_slugs'));

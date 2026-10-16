@@ -19,7 +19,7 @@ use Polyslug\Polyslug;
  * laravel/head installed. Kept as a plain method so the macro stays a simple,
  * analyzable call rather than inline logic — the same shape as PolyslugBlade.
  *
- * It writes ONLY the four things Polyslug is the authority on: the canonical URL,
+ * It writes only the four things Polyslug is the authority on: the canonical URL,
  * the reciprocal hreflang set, the Open Graph locale set, and whether the model may
  * be indexed at all. Title, description, Open Graph copy, cards and JSON-LD stay
  * laravel/head's job — this bridge never touches them.
@@ -31,7 +31,7 @@ final class PolyslugHead
         $locale ??= self::activeLocale();
 
         // A model the gate keeps out of hreflang sets and sitemaps must not be indexed
-        // either. It can still RENDER — for its owner, a preview link, a draft reviewer
+        // either. It can still render — for its owner, a preview link, a draft reviewer
         // — and that is exactly the leak: without this, one shared URL puts a gated page
         // into the index. Applied first because it needs no resolver.
         if (! $model->polyslugIsRoutable($locale)) {
@@ -52,15 +52,15 @@ final class PolyslugHead
         // The $routeKey argument is deliberately unused: the resolver derives the key
         // from the model and locale itself (its contract says so). Routing every URL
         // through the one resolver is what makes canonical, hreflang and the sitemap
-        // unable to disagree about WHICH ADDRESS a record has.
+        // unable to disagree about which address a record has.
         //
-        // Not about its FORM, and the difference is measurable rather than pedantic:
+        // Not about its form, and the difference is measurable rather than pedantic:
         // laravel/head normalizes the canonical it is handed — Canonical::render() runs
         // normalizeUrl() on an explicitly passed URL too, defaulting to forceHttps: true
         // and trailingSlash: false, and a host can flip either through Head::defaults().
         // alternates() emits its hrefs verbatim, and polyslug:sitemap never sees
         // laravel/head at all. A resolver that returns http:// or a trailing slash
-        // therefore yields a canonical that differs in form from the SELF-referencing
+        // therefore yields a canonical that differs in form from the self-referencing
         // hreflang for the same page.
         //
         // Left as it is rather than "fixed": matching it would mean reimplementing
@@ -77,9 +77,9 @@ final class PolyslugHead
             return $head;
         }
 
-        // The alternates describe the OTHER language versions, which stay useful even on
+        // The alternates describe the other language versions, which stay useful even on
         // a page this model may not be indexed under — so they are written first and
-        // unconditionally. hreflangLinks() resolves the set a SECOND time, and that is not
+        // unconditionally. hreflangLinks() resolves the set a second time, and that is not
         // free: measured on a three-locale model it is seven more database reads, not "a few
         // route() calls". It is still the right trade against reimplementing the trait's
         // private x-default rule out here just to reuse $urls — and eager-loading the `slugs`
@@ -93,7 +93,7 @@ final class PolyslugHead
 
         $head->alternates($alternateLinks);
 
-        // Say nothing about THIS locale's URL when the model is not routable in it. The
+        // Say nothing about this locale's URL when the model is not routable in it. The
         // robots directive above already hides the page; naming its URL in a canonical
         // tag would advertise the very address being withheld, and would contradict an
         // alternates set that deliberately omits it.
@@ -101,7 +101,7 @@ final class PolyslugHead
             return $head;
         }
 
-        // laravel/head's own canonical() falls back to the REQUEST url. On a route
+        // laravel/head's own canonical() falls back to the request url. On a route
         // without the polyslug.canonical middleware a stale slug renders 200, and that
         // fallback then declares the stale URL canonical. The resolver knows the current
         // one. Note it carries no query string, matching canonical() semantics — unlike
@@ -129,9 +129,9 @@ final class PolyslugHead
         }
 
         if ($alternates !== []) {
-            // NOT $head->meta('og:locale:alternate', …) once per locale, which is what
+            // Not $head->meta('og:locale:alternate', …) once per locale, which is what
             // this did until it was measured: MetaTags keys by attribute|key|media, so
-            // every call after the first REPLACED its predecessor and a four-locale page
+            // every call after the first replaced its predecessor and a four-locale page
             // shipped one alternate. Nothing was red — every arm here ran two locales,
             // which is the one count at which a collision cannot be seen.
             //
@@ -149,7 +149,7 @@ final class PolyslugHead
     /**
      * The Open Graph form of a locale — language_TERRITORY — or null when there is none.
      *
-     * NULL MEANS NO TAG, and that is the correction rather than a gap. A bare "de" is
+     * Null means no tag, and that is the correction rather than a gap. A bare "de" is
      * outside the format, and a scraper that cannot parse the value does not read a
      * language from it: it falls back to its own default, which is usually en_US. So the
      * tag was never saying what it looked like it was saying, and a page with no tag is
@@ -186,7 +186,7 @@ final class PolyslugHead
      * The robots directive a gated model gets — normalized, and checked against the
      * one thing the gate is about.
      *
-     * method_exists() rather than a method on the Sluggable contract, and that IS the
+     * method_exists() rather than a method on the Sluggable contract, and that is the
      * no-break story: polyslugRobotsDirective() lives on HasPolyslug, so an application
      * implementing the contract by hand has no such method and keeps the historical
      * `none`. Putting it on the contract would have broken exactly those applications —
@@ -203,7 +203,7 @@ final class PolyslugHead
         $directives = self::normalizeDirectives($model->polyslugRobotsDirective($locale));
         $unknown = self::unknownDirectives($directives);
 
-        // Checked BEFORE the noindex rule below, so a page whose directive is both misspelled
+        // Checked before the noindex rule below, so a page whose directive is both misspelled
         // and non-restricting is reported for the reason that explains the other.
         if ($unknown !== []) {
             throw MisconfiguredPolyslug::robotsDirectiveIsNotVocabulary($model::class, $unknown);
@@ -225,7 +225,7 @@ final class PolyslugHead
      * @var list<string>
      */
     private const array ROBOTS_KEYWORDS = [
-        // `index` and `follow` are the defaults and rarely need writing, but they ARE
+        // `index` and `follow` are the defaults and rarely need writing, but they are
         // directives -- this package's own MisconfiguredPolyslug message recommends
         // `['noindex', 'follow']`, so a list without them would refuse the advice it gives.
         'all', 'index', 'follow', 'noindex', 'nofollow', 'none', 'noarchive', 'nosnippet',

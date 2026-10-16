@@ -35,7 +35,7 @@ final class SuccessorChain
      * Only the end is an answer, never a record in the middle. A record in the middle redirects
      * again, and the request that follows starts over without knowing where the visitor came
      * from, so a ring longer than one answer reaches would send them round it for good. A chain
-     * whose end is not reached within HOPS successors is therefore treated like a ring.
+     * whose end is not reached within `HOPS` successors is therefore treated like a ring.
      */
     public static function lastVisible(Sluggable $value): ?Sluggable
     {
@@ -59,7 +59,7 @@ final class SuccessorChain
             $current = $visible;
         }
 
-        // HOPS successors followed. The last of them is the end only if nothing the requester may
+        // `HOPS` successors followed. The last of them is the end only if nothing the requester may
         // see supersedes it in turn.
         return self::visibleSuccessor($current) instanceof Sluggable ? null : $current;
     }

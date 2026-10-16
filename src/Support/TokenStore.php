@@ -16,7 +16,7 @@ use stdClass;
  * The polyslug_tokens table: one stable token per model key, claimed race-safely.
  *
  * Split out of the encoders rather than duplicated across them, because everything hard
- * here is about CLAIMING — losing a race, telling which race was lost, and recovering
+ * here is about claiming — losing a race, telling which race was lost, and recovering
  * without an exception on a GET. Which token is proposed is the {@see TokenScheme}'s
  * business, and it is the only thing that differs between an unguessable URL and a
  * counted one.
@@ -26,7 +26,7 @@ final class TokenStore
     /**
      * How many times a claim re-attempts before giving up.
      *
-     * Every attempt loses only to a CONCURRENT writer or to a token that is already taken,
+     * Every attempt loses only to a concurrent writer or to a token that is already taken,
      * and each loss teaches the loop something: either the key is now claimed (adopt that
      * token and stop) or this candidate was taken (ask the scheme for the next one). Eight
      * rather than the write path's five, because a scheme that widens its output every three
@@ -36,7 +36,7 @@ final class TokenStore
     private const int CLAIM_ATTEMPTS = 8;
 
     /**
-     * The UNTYPED lane: the type a token carries when nobody named one.
+     * The untyped lane: the type a token carries when nobody named one.
      *
      * A column default rather than null, because nulls do not collide in a unique index on
      * any of the three engines — a nullable owner would let two rows hold the same key_value
@@ -93,7 +93,7 @@ final class TokenStore
 
         $this->trim($this->encoded);
 
-        // Read-then-write is a RACE, and this runs on the URL-render path: two requests
+        // Read-then-write is a race, and this runs on the URL-render path: two requests
         // rendering the same never-before-encoded model both miss the SELECT and both
         // INSERT, so the loser takes a unique-constraint violation — a 500 on a GET,
         // intermittent and unreproducible after the fact. insertOrIgnore turns that loss
@@ -103,8 +103,8 @@ final class TokenStore
         // same reason), and the loser then adopts the winner's token: both requests emit the
         // same canonical URL, which is the correct outcome anyway.
         for ($attempt = 0; $attempt < self::CLAIM_ATTEMPTS; $attempt++) {
-            // BOTH lanes in one statement. This runs while a URL is being rendered, so the
-            // owner's row and the row this record may have left in the UNTYPED lane are asked
+            // Both lanes in one statement. This runs while a URL is being rendered, so the
+            // owner's row and the row this record may have left in the untyped lane are asked
             // for together — reading them one after the other would put a second query on the
             // render path for every record's first encode, to answer a question that is almost
             // always "no".
@@ -132,7 +132,7 @@ final class TokenStore
                 return $this->encoded[$memo] = $existing;
             }
 
-            // Nothing under this owner, but a row in the UNTYPED lane belongs to this record:
+            // Nothing under this owner, but a row in the untyped lane belongs to this record:
             // a token issued before tokens had owners, which the upgrade migration could not
             // attribute because the record has no slug row to read the type from. Adopting it
             // is what keeps that record's published URL alive; only the caller knows who is
@@ -155,7 +155,7 @@ final class TokenStore
                 return $this->encoded[$memo] = $token;
             }
 
-            // Zero rows means SOME unique index rejected this row, and the table carries
+            // Zero rows means some unique index rejected this row, and the table carries
             // two: (key_type, key_value) (a concurrent writer claimed this record — the next
             // iteration's SELECT finds their token and returns it) and token (this candidate
             // was taken — the next iteration asks the scheme for another). Both recover by looping,
@@ -175,7 +175,7 @@ final class TokenStore
      * encoder path that reads the database — so on a rendered list it was the last per-row
      * query left after the slug relation became eager-loadable.
      *
-     * The single-key path is NOT bypassed, it is the fallback, and that is deliberate:
+     * The single-key path is not bypassed, it is the fallback, and that is deliberate:
      * every guarantee tokenFor() makes about a lost race lives there. A key whose bulk
      * insert was ignored — because a concurrent writer claimed the key, or because a
      * candidate collided — is handed straight back to it, and it re-reads and either adopts
@@ -204,7 +204,7 @@ final class TokenStore
         // memo, and an entry dropped halfway through would send its key down the slow path.
         $this->trim($this->encoded);
 
-        // Cast BACK to string, and this is not redundant. PHP normalizes a numeric string
+        // Cast back to string, and this is not redundant. PHP normalizes a numeric string
         // array key to an int, so array_keys() on a map built from `(string) $id` hands back
         // ints for every numeric id — which is every default Eloquent key. The keys are
         // strings everywhere else in this class, so without this the memo closure below is
@@ -228,8 +228,8 @@ final class TokenStore
         };
 
         foreach (array_chunk($missing, self::SLICE) as $slice) {
-            // BOTH lanes, exactly as the single-key path reads them, and for the same reason:
-            // a record whose token predates owners must be ADOPTED rather than issued a second
+            // Both lanes, exactly as the single-key path reads them, and for the same reason:
+            // a record whose token predates owners must be adopted rather than issued a second
             // one. Missing that here was not a slow path, it was a wrong one — a single
             // polyslugPreload() over such records would mint fresh tokens for all of them and
             // retire every URL they were published under, silently and in bulk.
@@ -248,7 +248,7 @@ final class TokenStore
                     if ($this->columnString($row->key_type ?? null) === $type) {
                         $this->encoded[$memo($key)] = $token;
                     } else {
-                        // A LIST of pairs, not a map keyed by the key: PHP normalizes a
+                        // A list of pairs, not a map keyed by the key: PHP normalizes a
                         // numeric array key to an int, and every method here takes a string.
                         $orphans[] = [$key, $token];
                     }
@@ -265,7 +265,7 @@ final class TokenStore
 
             if ($unclaimed !== []) {
                 DB::table('polyslug_tokens')->insertOrIgnore(array_map(
-                    // Each row gets its own candidate, and a COUNTED scheme needs them to
+                    // Each row gets its own candidate, and a counted scheme needs them to
                     // differ: it answers from how many tokens existed when the batch began, so
                     // every row would otherwise be handed the same next number and all but one
                     // would be dropped by the unique index. The offset walks the count forward
@@ -286,7 +286,7 @@ final class TokenStore
                 ));
 
                 // Read back rather than trusting the drafted tokens: insertOrIgnore reports
-                // how many rows landed, not WHICH — so a row rejected by either unique index
+                // how many rows landed, not which — so a row rejected by either unique index
                 // is indistinguishable here from one that succeeded. The re-read settles it,
                 // and whatever is still absent goes through tokenFor() and its retry loop.
                 /** @var array<string, string> $claimed */
@@ -315,7 +315,7 @@ final class TokenStore
     }
 
     /**
-     * The key a token belongs to, WITHIN one morph type.
+     * The key a token belongs to, within one morph type.
      *
      * Scoped rather than global, and that is the whole point of the owner column: a token
      * that belongs to another model type now returns null — a clean 404 — instead of handing
@@ -337,7 +337,7 @@ final class TokenStore
         $this->trim($this->decoded);
 
         // No ordering between the two lanes, and none is needed: `token` carries its own
-        // unique index, so at most ONE row can match and there is nothing to rank. A CASE
+        // unique index, so at most one row can match and there is nothing to rank. A CASE
         // ordering stood here, which reads as though a token could sit in both lanes at once —
         // it cannot, and the statement paid for a sort over a single row to say so.
         $key = DB::table('polyslug_tokens')
@@ -367,7 +367,7 @@ final class TokenStore
     }
 
     /**
-     * The keys of many tokens WITHIN one morph type, in one query per thousand tokens.
+     * The keys of many tokens within one morph type, in one query per thousand tokens.
      *
      * The bulk counterpart of keyFor(), with its semantics: the untyped lane is searched as a
      * fallback, a token of another type or one nothing holds is absent from the result, and a
@@ -455,7 +455,7 @@ final class TokenStore
             }
         }
 
-        // When the caller IS the untyped lane there is no second lane to read, so a row can
+        // When the caller is the untyped lane there is no second lane to read, so a row can
         // only ever be $own. The null $orphan below is a fact of that shape, not a lookup
         // that came back empty.
         return [$own, $orphan];
@@ -467,8 +467,8 @@ final class TokenStore
      * A conditional UPDATE rather than a read-then-write, so two records racing for the same
      * orphan cannot both take it: the loser sees zero rows affected and mints instead.
      *
-     * PRECONDITION: $type is never the untyped lane. Both callers reach this only after
-     * finding a row whose owner DIFFERS from theirs, and when the caller is itself the untyped
+     * Precondition: $type is never the untyped lane. Both callers reach this only after
+     * finding a row whose owner differs from theirs, and when the caller is itself the untyped
      * lane the read asks for one lane, so every row is its own. That is why the method does
      * not check for it.
      */
@@ -488,7 +488,7 @@ final class TokenStore
      * count drops with every deleted row, and each drop is one more taken candidate the claim
      * has to walk past; enough of them and a claim runs out of attempts.
      *
-     * It is only ever a HINT. A counted scheme starts from it and walks forward until the
+     * It is only ever a hint. A counted scheme starts from it and walks forward until the
      * unique index accepts, so a bound that is behind costs attempts. What the index cannot
      * refuse is a token whose row is gone: deleting the highest row lowers the bound to the
      * row before it, and leaves the deleted token free to be drawn again, in a table filled

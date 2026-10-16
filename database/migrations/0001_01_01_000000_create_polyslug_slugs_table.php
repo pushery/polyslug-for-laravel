@@ -78,7 +78,7 @@ return new class extends Migration
         });
 
         // Optional /go short links: one stable token per (model, locale) that 301s to the
-        // model's CURRENT canonical URL, so a printed/QR link survives slug renames.
+        // model's current canonical URL, so a printed/QR link survives slug renames.
         Schema::create('polyslug_short_links', function (Blueprint $table): void {
             $table->id();
             $table->string('token');

@@ -15,7 +15,7 @@ interface PolyslugUrlResolver
     public function url(Sluggable $model, string $locale): string;
 
     /*
-     * OPTIONAL, AND DELIBERATELY NOT DECLARED HERE:
+     * Optional, and deliberately not declared here:
      *
      *     public function canAddress(Sluggable $model): bool
      *

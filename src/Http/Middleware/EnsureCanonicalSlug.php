@@ -43,7 +43,7 @@ final class EnsureCanonicalSlug
         $locale = $this->requestLocale($route);
 
         // Gone / superseded content is terminal — it takes precedence over same-model self-heal.
-        // Decided here, ANSWERED below: what this middleware would say is worked out before
+        // Decided here, answered below: what this middleware would say is worked out before
         // the action runs, so the decision still sees the request as it arrived; saying it is
         // deferred until the application has had its turn.
         $gone = $this->isGone($route);
@@ -57,7 +57,7 @@ final class EnsureCanonicalSlug
             return $next($request);
         }
 
-        // THE APPLICATION ANSWERS FIRST, and this is the whole security property.
+        // The application answers first, and this is the whole security property.
         //
         // Answering before it — which is what this middleware used to do — puts a Location
         // header carrying another row's canonical slug, i.e. usually its title, in front of
@@ -78,7 +78,7 @@ final class EnsureCanonicalSlug
         // no redirect is ever built.
         $response = $next($request);
 
-        // Only a SUCCESSFUL answer may be replaced. Anything else is the application's verdict
+        // Only a successful answer may be replaced. Anything else is the application's verdict
         // and is returned untouched: a refusal (4xx/5xx), and equally a redirect the action
         // issued itself, which this one has no business overwriting.
         if (! $response->isSuccessful()) {
@@ -113,7 +113,7 @@ final class EnsureCanonicalSlug
     }
 
     /**
-     * A path with a trailing slash is a SECOND address for the same document.
+     * A path with a trailing slash is a second address for the same document.
      *
      * Nothing in the stack removes it: the router matches `/p/x/` against `/p/{page}` with the
      * slug parameter identical, so hasStaleSlug() sees nothing wrong and the page answers 200
@@ -125,7 +125,7 @@ final class EnsureCanonicalSlug
     {
         $path = $request->getPathInfo();
 
-        // The site root is not a duplicate of anything: `/` IS the path, not `` with a slash.
+        // The site root is not a duplicate of anything: `/` is the path, not `` with a slash.
         return $path !== '/' && str_ends_with($path, '/');
     }
 
@@ -156,7 +156,7 @@ final class EnsureCanonicalSlug
 
     private function canonicalUrl(Request $request, Route $route, string $locale): string
     {
-        // Rebuild each sluggable parameter for the REQUEST's locale (not the ambient app
+        // Rebuild each sluggable parameter for the request's locale (not the ambient app
         // locale), so a /{locale}/... URL redirects to that locale's slug, not another's.
         //
         $parameters = [];
@@ -215,8 +215,8 @@ final class EnsureCanonicalSlug
      * Whether any bound model has been permanently withdrawn.
      *
      * Split out of the supersede check rather than throwing from inside it, because the
-     * two now happen at different times: the QUESTION is asked before the action runs,
-     * the ANSWER is given after. A throw cannot be held, so it could not stay there —
+     * two now happen at different times: the question is asked before the action runs,
+     * the answer is given after. A throw cannot be held, so it could not stay there —
      * and a 410 handed out ahead of the application's own refusal is a state oracle, it
      * separates "exists and was withdrawn" from "no such row" for a row the request may
      * not see.
@@ -260,10 +260,10 @@ final class EnsureCanonicalSlug
     }
 
     /**
-     * THE SUCCESSOR GOES THROUGH THE GATE TOO, and that is not the same property 0.7.0 fixed.
+     * The successor goes through the gate too, and that is not the same property 0.7.0 fixed.
      *
      * 0.7.0 reversed the middleware so a canonical redirect can no longer overtake the
-     * application's authorization. That fixed the TIMING. It did not fix WHOSE row ends up in
+     * application's authorization. That fixed the timing. It did not fix whose row ends up in
      * the Location header, and for a supersede redirect those are two different rows.
      *
      * $value is gated: route binding resolved it through polyslugResolveQuery(), and the
@@ -279,7 +279,7 @@ final class EnsureCanonicalSlug
      * signature does not hint at it. Deferring the answer is the only fix that asks the
      * consumer for nothing.
      *
-     * An invisible successor makes THIS PARAMETER produce no redirect — the loop moves
+     * An invisible successor makes this parameter produce no redirect — the loop moves
      * on, exactly as it does for a parameter that was never superseded. The application's own
      * response is then handed back untouched, and the self-heal check downstream still runs
      * against the model the request legitimately holds.
@@ -335,7 +335,7 @@ final class EnsureCanonicalSlug
     }
 
     /**
-     * The bound route parameters the route's own URI actually DECLARES.
+     * The bound route parameters the route's own URI actually declares.
      *
      * `$route->parameters()` is not that list. Laravel's RouteParameterBinder folds every
      * route DEFAULT into the bound parameters, including keys the URI never mentions:
@@ -344,19 +344,19 @@ final class EnsureCanonicalSlug
      *     // $route->parameters() === ['page' => <Page>, 'locale' => 'en']
      *
      * `UrlGenerator::toRoute()` cannot place `locale` in the path, so it appends it to the
-     * QUERY STRING. Both URL builders in this middleware then emitted `/pages/canonical?locale=en`
+     * query string. Both URL builders in this middleware then emitted `/pages/canonical?locale=en`
      * — and where the request carried a query string of its own, `?locale=en?ref=news`, which
      * is not a valid URL at all.
      *
      * That is the exact opposite of this middleware's purpose. A canonical redirect is where
-     * an address is declared binding; a parameter welded onto it creates a SECOND address for
+     * an address is declared binding; a parameter welded onto it creates a second address for
      * the same page, for every renamed row at once.
      *
      * Filtering is lossless: a parameter the URI does not declare cannot contribute to the
      * path, it can only lengthen it. Locale resolution is untouched — `requestLocale()` reads
      * the same source earlier and independently.
      *
-     * Used by BOTH builders on purpose: `successorUrl()` builds its URL the same way, so
+     * Used by both builders on purpose: `successorUrl()` builds its URL the same way, so
      * filtering in only one of them would leave the other emitting the parameter.
      *
      * Keyed `array-key` rather than `string` because that is all the framework promises:

@@ -10,7 +10,7 @@ use Polyslug\Models\Concerns\Replaceable;
 
 /**
  * A stable short link for a sluggable model in one locale. /go/{token} 301s to the
- * model's CURRENT canonical URL, so the short link survives slug renames.
+ * model's current canonical URL, so the short link survives slug renames.
  *
  * @property int $id
  * @property string $token

@@ -11,16 +11,20 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Polyslug\Concerns\HasPolyslug;
 use Polyslug\Contracts\IdentityEncoder;
 use Polyslug\Contracts\PolyslugUrlResolver;
 use Polyslug\Contracts\TokenScheme;
 use Polyslug\Encoders\RandomTokenEncoder;
 use Polyslug\Encoders\SequentialTokenEncoder;
+use Polyslug\Encoders\SqidsEncoder;
 use Polyslug\Models\PolyslugShortLink;
 use Polyslug\Models\PolyslugSlug;
+use Polyslug\PolyslugConfigResolver;
+use Polyslug\PolyslugServiceProvider;
+use Polyslug\Support\SequentialTokenScheme;
 use Polyslug\Support\StatusSetting;
+use Polyslug\Support\TableLookup;
 use Polyslug\Support\TokenAlphabet;
 use ReflectionMethod;
 use Throwable;
@@ -40,15 +44,35 @@ final class DoctorCommand extends Command
      */
     private const array REPLACEABLE_MODELS = [PolyslugSlug::class, PolyslugShortLink::class];
 
+    /**
+     * Every token setting the package reads, with the kind of value it takes.
+     *
+     * A value of another kind is not obeyed: the setting falls back to its default, so a request keeps answering. The
+     * doctor names each one with the value that is used instead.
+     *
+     * @var array<string, 'integer'|'string'>
+     */
+    public const array TOKEN_SETTINGS = [
+        'polyslug.random_token.length' => 'integer',
+        'polyslug.random_token.alphabet' => 'string',
+        'polyslug.sequential_token.length' => 'integer',
+        'polyslug.sequential_token.alphabet' => 'string',
+        'polyslug.short_links.length' => 'integer',
+        'polyslug.short_links.alphabet' => 'string',
+        'polyslug.sqids.alphabet' => 'string',
+        'polyslug.sqids.min_length' => 'integer',
+    ];
+
     public function handle(): int
     {
         $encodersOk = $this->checkEncoders();
         $schemesOk = $this->checkTokenSchemes();
+        $settingsOk = $this->checkTokenSettings();
         $modelsOk = $this->checkModels();
         $statusesOk = $this->checkStatuses();
         $indexesOk = $this->checkIndexes();
 
-        // Only once BOTH have passed, because reporting how full a token space is means
+        // Only once both have passed, because reporting how full a token space is means
         // resolving the encoder and the short-link scheme — the very things those two
         // checks just said may be unbuildable. A diagnostic that dies on the fault it was
         // run to find is worse than one that does not look.
@@ -59,7 +83,7 @@ final class DoctorCommand extends Command
         $gatesOk = $this->checkResolutionGates();
         $this->checkUrlResolver();
 
-        if (! $encodersOk || ! $schemesOk || ! $modelsOk || ! $statusesOk || ! $indexesOk || ! $gatesOk) {
+        if (! $encodersOk || ! $schemesOk || ! $settingsOk || ! $modelsOk || ! $statusesOk || ! $indexesOk || ! $gatesOk) {
             $this->error('Polyslug: one or more checks failed.');
 
             return self::FAILURE;
@@ -75,7 +99,7 @@ final class DoctorCommand extends Command
      *
      * The one class a consuming application has to write itself — the package cannot know
      * the host's route structure — and the single most common thing to be missing, because
-     * two of the three features built on it fail SILENTLY without it.
+     * two of the three features built on it fail silently without it.
      *
      * Reported rather than failed, and the distinction is real: an application that uses
      * neither short links nor sitemaps nor the head integration needs no resolver at all,
@@ -102,7 +126,7 @@ final class DoctorCommand extends Command
     /**
      * Report every registered type that never overrode polyslugResolveQuery().
      *
-     * The trait's default gate returns the query untouched, so a slug resolves to ANY
+     * The trait's default gate returns the query untouched, so a slug resolves to any
      * row of that type — across tenants, across owners, published or not. That is the
      * right default for genuinely public content and a silent authorization bypass for
      * everything else, and nothing distinguishes the two but the author having read one
@@ -136,7 +160,7 @@ final class DoctorCommand extends Command
             if (! method_exists($class, 'polyslugResolveQuery')) {
                 continue;
             }
-            // "Still the trait's version" is decided by the FILE the method was compiled
+            // "Still the trait's version" is decided by the file the method was compiled
             // from, not by getDeclaringClass(): PHP flattens a trait's methods into the
             // using class, so getDeclaringClass() answers with the model for an
             // un-overridden method just as it does for an overridden one. getFileName()
@@ -173,7 +197,7 @@ final class DoctorCommand extends Command
      *
      * A length of zero, a length past what a counted scheme can reach, an alphabet with a
      * repeated character or a `/` in it — each is refused by the scheme that receives it,
-     * and without this check that refusal arrives the first time a URL is RENDERED. Which is
+     * and without this check that refusal arrives the first time a URL is rendered. Which is
      * to say: on a page, in production, for a setting somebody changed and deployed with a
      * green test suite, because nothing in a test suite renders a URL for a model that does
      * not exist yet.
@@ -208,9 +232,171 @@ final class DoctorCommand extends Command
     }
 
     /**
+     * Name every token setting a value of the wrong kind leaves without effect, with the value used instead.
+     *
+     * A length is read only as an integer and an alphabet only as a string, in the config and in the
+     * `encoderOptions` of a registered model; anything else takes the default, so every request keeps answering.
+     * `'24'`, the form `env()` hands over, therefore changes nothing, and no other check notices: the scheme it
+     * falls back to is valid. An unset value is the default and says nothing.
+     */
+    private function checkTokenSettings(): bool
+    {
+        $config = Container::getInstance()->make(ConfigRepository::class);
+        $ok = true;
+
+        foreach (self::TOKEN_SETTINGS as $key => $kind) {
+            $value = $config->get($key);
+
+            if ($value === null || ($kind === 'integer' ? is_int($value) : is_string($value))) {
+                continue;
+            }
+
+            $this->line(sprintf('  ✗ %s: [%s] is not %s, so Polyslug uses %s.', $key, $this->shown($value), $kind === 'integer' ? 'an integer' : 'a string', $this->usedInstead($key)));
+            $ok = false;
+        }
+
+        $types = $config->get('polyslug.types', []);
+
+        foreach (is_array($types) ? $types : [] as $class) {
+            if (is_string($class) && is_a($class, Model::class, true) && method_exists($class, 'polyslugEncoder')) {
+                $ok = $this->checkEncoderOptions($class) && $ok;
+            }
+        }
+
+        if ($ok) {
+            $this->line('  ✓ token settings are of the kind they take.');
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Name each `encoderOptions` entry of one model that a value of the wrong kind leaves without effect.
+     *
+     * Only the options the model's encoder reads: a Sqids encoder takes `min_length` and `alphabet`, a stored-token
+     * encoder `length` and `alphabet`, and every other encoder none of them, so an option it never reads is not one
+     * a wrong kind could disable. A stored-token encoder falls back to the application's own setting, a Sqids encoder
+     * to the Sqids defaults. A model whose configuration cannot be read is named and passed over, since its options
+     * are never reached either.
+     *
+     * @param  class-string<Model>  $class
+     */
+    private function checkEncoderOptions(string $class): bool
+    {
+        try {
+            $config = PolyslugConfigResolver::resolve(new $class);
+        } catch (Throwable $exception) {
+            $this->line(sprintf('  ! [%s] cannot read its configuration, so its encoder options are not checked: %s', $class, $exception->getMessage()));
+
+            return true;
+        }
+
+        $encoder = $config->encoder ?? Container::getInstance()->make(ConfigRepository::class)->get('polyslug.encoder', RandomTokenEncoder::class);
+        $ok = true;
+
+        $read = match (true) {
+            is_string($encoder) && is_a($encoder, SqidsEncoder::class, true) => [
+                'min_length' => ['integer', '0'],
+                'alphabet' => ['string', 'the default Sqids alphabet'],
+            ],
+            is_string($encoder) && (is_a($encoder, RandomTokenEncoder::class, true) || is_a($encoder, SequentialTokenEncoder::class, true)) => [
+                'length' => ['integer', "the application's length"],
+                'alphabet' => ['string', "the application's alphabet"],
+            ],
+            default => [],
+        };
+
+        foreach ($read as $option => [$kind, $instead]) {
+            $value = $config->encoderOptions[$option] ?? null;
+
+            if ($value === null || ($kind === 'integer' ? is_int($value) : is_string($value))) {
+                continue;
+            }
+
+            $this->line(sprintf(
+                "  ✗ [%s] encoderOptions['%s']: [%s] is not %s, so Polyslug uses %s.",
+                $class,
+                $option,
+                $this->shown($value),
+                $kind === 'integer' ? 'an integer' : 'a string',
+                $instead,
+            ));
+            $ok = false;
+        }
+
+        if (is_string($encoder) && is_a($encoder, SqidsEncoder::class, true) && $config->encoderOptions !== []) {
+            $this->noteSqidsDefaultsTaken($class, $config->encoderOptions);
+        }
+
+        return $ok;
+    }
+
+    /**
+     * Name each Sqids option a model leaves out while the application sets it.
+     *
+     * A model's Sqids options are a space of their own, built from those options alone: one it leaves out takes the
+     * Sqids default rather than the application's `polyslug.sqids` value, and every URL the model has issued was
+     * encoded that way. It is a legitimate choice, so it is reported and never failed.
+     *
+     * @param  class-string<Model>  $class
+     * @param  array<string, mixed>  $options
+     */
+    private function noteSqidsDefaultsTaken(string $class, array $options): void
+    {
+        $config = Container::getInstance()->make(ConfigRepository::class);
+        $minLength = $config->get('polyslug.sqids.min_length');
+
+        $setByTheApplication = [
+            'alphabet' => is_string($config->get('polyslug.sqids.alphabet')),
+            'min_length' => is_int($minLength) && $minLength !== 0,
+        ];
+
+        foreach ($setByTheApplication as $option => $set) {
+            if ($set && ($options[$option] ?? null) === null) {
+                $this->line(sprintf("  ! [%s] encoderOptions leave out '%s', so it takes the Sqids default instead of polyslug.sqids.%s.", $class, $option, $option));
+            }
+        }
+    }
+
+    /** The default a token setting falls back to, as the doctor names it. */
+    private function usedInstead(string $key): string
+    {
+        $sequentialShortLinks = Container::getInstance()->make(ConfigRepository::class)->get('polyslug.short_links.scheme') === 'sequential';
+
+        return match ($key) {
+            'polyslug.random_token.length' => (string) RandomTokenEncoder::DEFAULT_LENGTH,
+            'polyslug.sequential_token.length' => (string) SequentialTokenEncoder::DEFAULT_LENGTH,
+            'polyslug.short_links.length' => (string) ($sequentialShortLinks ? SequentialTokenScheme::DEFAULT_LENGTH : PolyslugServiceProvider::SHORT_LINK_LENGTH),
+            'polyslug.sqids.min_length' => '0',
+            'polyslug.sqids.alphabet' => 'the default Sqids alphabet',
+            default => 'the default alphabet',
+        };
+    }
+
+    /** A value as a reader of the config file would write it: a string in quotes, a float with its point. */
+    private function shown(mixed $value): string
+    {
+        return match (true) {
+            is_string($value) => "'".addcslashes($value, "'\\")."'",
+            is_bool($value) => $value ? 'true' : 'false',
+            is_float($value) => $this->shownFloat($value),
+            is_int($value) => (string) $value,
+            default => get_debug_type($value),
+        };
+    }
+
+    /** A float with its point, so that 24.0 does not read as the integer 24. */
+    private function shownFloat(float $value): string
+    {
+        $text = (string) $value;
+
+        return is_finite($value) && preg_match('/[.E]/', $text) !== 1 ? $text.'.0' : $text;
+    }
+
+    /**
      * Report how full each token space is, before it fills.
      *
-     * THIS IS THE ONE CHECK THAT WARNS ABOUT SOMETHING NOTHING ELSE CAN SEE. A short token
+     * This is the one check that warns about something nothing else can see. A short token
      * length is a supported choice, and it stays a good one right up until the space behind
      * it is used up. Nothing goes wrong at that point either — a scheme whose length keeps
      * colliding yields to one character more — but the URLs quietly get longer, and an
@@ -221,7 +407,7 @@ final class DoctorCommand extends Command
      * exactly what is supposed to happen, since counting fills a width completely before
      * moving on. What the line removes is the version of that nobody can see.
      *
-     * Measured against the tokens that EXIST rather than the ones configured, and grouped by
+     * Measured against the tokens that exist rather than the ones configured, and grouped by
      * their real length, because a table that has outlived a setting change legitimately
      * holds a mix — and it is the shortest, fullest group that matters.
      */
@@ -239,7 +425,7 @@ final class DoctorCommand extends Command
         ];
 
         foreach ($spaces as $label => [$connection, $table, $alphabet]) {
-            if (! $connection->getSchemaBuilder()->hasTable($table)) {
+            if (! TableLookup::exists($table, $connection->getName())) {
                 $this->line(sprintf('  ! [%s] is missing — run the migrations.', $table));
 
                 continue;
@@ -248,7 +434,7 @@ final class DoctorCommand extends Command
             $this->reportFill($label, $alphabet, $this->tokenCounts($connection, $table));
         }
 
-        if (Schema::hasTable('polyslug_tokens')) {
+        if (TableLookup::exists('polyslug_tokens')) {
             foreach ($this->modelTokenSpaces($identity) as [$types, $alphabet]) {
                 $this->reportFill('identity tokens of '.implode(', ', $types), $alphabet, $this->tokenCounts(DB::connection(), 'polyslug_tokens', $types));
             }
@@ -344,7 +530,7 @@ final class DoctorCommand extends Command
     }
 
     /**
-     * The alphabet the CONFIGURED identity encoder counts in.
+     * The alphabet the configured identity encoder counts in.
      *
      * A Sqids, UUID, ULID or raw-id encoder stores nothing in polyslug_tokens, so there is no
      * space of its own to measure — but the table may still hold rows from a stored-token
@@ -547,7 +733,7 @@ final class DoctorCommand extends Command
     }
 
     /**
-     * The indexes that hold the guarantees, by name AND by kind.
+     * The indexes that hold the guarantees, by name and by kind.
      *
      * A name alone is not the guarantee: an index of the same name that is not unique, left by a
      * hand-made rebuild or a rollback that failed halfway, lets two current slugs collide while
@@ -563,7 +749,7 @@ final class DoctorCommand extends Command
         $model = new $slugs;
         $unique = [];
 
-        foreach ($model->getConnection()->getSchemaBuilder()->getIndexes($model->getTable()) as $index) {
+        foreach ($model->getConnection()->getSchemaBuilder()->getIndexes(TableLookup::qualified($model->getTable(), $model->getConnectionName())) as $index) {
             $unique[$index['name']] = $index['unique'];
         }
 

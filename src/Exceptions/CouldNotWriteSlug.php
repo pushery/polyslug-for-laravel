@@ -11,7 +11,7 @@ use Throwable;
  * Thrown when a slug could not be written after repeated write conflicts — a
  * concurrent writer kept claiming the generated slug (or the one-current-row) up to
  * the configured polyslug.write.max_attempts. The model keeps whatever slug it had
- * before — RESTORED in place, not rolled back: the write path runs in a transaction that
+ * before — restored in place, not rolled back: the write path runs in a transaction that
  * always commits and puts the demoted row back itself, because a nested savepoint is
  * unreliable once DDL has implicitly committed an outer transaction.
  *

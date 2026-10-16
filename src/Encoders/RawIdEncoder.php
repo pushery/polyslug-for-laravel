@@ -10,7 +10,7 @@ use Polyslug\Contracts\IdentityEncoder;
 /**
  * Raw pass-through of a non-negative integer key — the key appears in the URL verbatim.
  *
- * This LEAKS the sequential primary key: row count, growth rate, ordering, and it
+ * This leaks the sequential primary key: row count, growth rate, ordering, and it
  * lets a visitor probe neighboring records by incrementing the number. It exists
  * for parity with the framework default and for internal tooling; never use it on a
  * public, enumeration-sensitive route. Non-numeric tokens decode to null (→ 404).

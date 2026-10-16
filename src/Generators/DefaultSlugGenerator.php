@@ -55,7 +55,7 @@ final class DefaultSlugGenerator implements SlugGenerator
         }
 
         if (! $config->unique) {
-            // `unique: false` opts out of BOTH the disambiguating suffix and the uniqueness
+            // `unique: false` opts out of both the disambiguating suffix and the uniqueness
             // guarantee: records may share a slug, because a non-idLess URL (slug_id) resolves
             // by the encoded id, not the slug. The row is written with enforce_unique = false,
             // so the current_unique index skips it. idLess + unique:false is rejected at config
@@ -158,9 +158,9 @@ final class DefaultSlugGenerator implements SlugGenerator
      * run of non-(letter/number) to a single separator, which is what is left of `Str::slug()`
      * once the fold is removed.
      *
-     * A SECOND IMPLEMENTATION IS A SECOND THING TO GET WRONG, so it is held to the first:
+     * A second implementation is a second thing to get wrong, so it is held to the first:
      * a test asserts that lower-casing this result lands exactly on what `Str::slug()` emits
-     * for the same source. Nothing here may drift into producing a different SHAPE — the only
+     * for the same source. Nothing here may drift into producing a different shape — the only
      * difference this method is allowed to make is the case.
      *
      * Safe only because `unicode: 'ascii'` transliterates: every character that survives is
@@ -266,7 +266,7 @@ final class DefaultSlugGenerator implements SlugGenerator
     }
 
     /**
-     * The names among $slugs, lower-cased, that a competing UNIQUENESS-ENFORCING row already holds
+     * The names among $slugs, lower-cased, that a competing uniqueness-enforcing row already holds
      * in the store for this (type, locale, scope), the model's own rows excluded. It mirrors the
      * current_unique index, which covers only enforce_unique rows, so a unique:false record
      * (enforce_unique = false, free to share a slug) never counts as a collision here. The
@@ -277,12 +277,12 @@ final class DefaultSlugGenerator implements SlugGenerator
      */
     private function takenInStore(array $slugs, SlugRequest $request, PolyslugConfig $config): array
     {
-        // `reclaimActive` takes the name from whoever holds it, so NOTHING in the store is a
+        // `reclaimActive` takes the name from whoever holds it, so nothing in the store is a
         // collision and no counter suffix is ever appended. The handover itself is the write
         // path's job (it retires the holder's row inside the same transaction as the insert); all
         // that is decided here is that the generator must not steer around the name first.
         // Returning early rather than dropping the is_current filter below, because with the
-        // filter dropped a RETIRED row of another model would still read as a collision and the
+        // filter dropped a retired row of another model would still read as a collision and the
         // suffix would come back for exactly the case reclaim exists to serve.
         if ($config->reclaimActive) {
             return [];
