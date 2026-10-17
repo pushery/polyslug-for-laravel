@@ -19,8 +19,10 @@ next release.
 - Describe the behavior change and the case that proves it. This repository does not
   carry the test suite (see below), so name the scenario in the pull request and a
   maintainer writes the covering test and runs it against your branch.
-- Update the [documentation](https://docs.pushery.com/polyslug-for-laravel/) and the
-  `CHANGELOG.md` `## [Unreleased]` section.
+- Update the [documentation](https://docs.pushery.com/polyslug-for-laravel/) where your
+  change alters what it describes. Leave `CHANGELOG.md` as it is: it lists released versions,
+  and the entry for your change is written when the change is carried into the development
+  repository.
 - Keep each commit focused.
 
 ## Where the tests are

@@ -27,7 +27,7 @@ interface TokenScheme
      * implementation may use it to yield to a longer token.
      *
      * @param  Closure(): int  $issued  How many tokens the store has already handed out, as
-     *                                  a lower bound. A LAZY closure rather than a number,
+     *                                  a lower bound. A lazy closure rather than a number,
      *                                  because answering it costs a query and a random
      *                                  scheme never needs to ask.
      */

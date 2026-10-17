@@ -105,6 +105,26 @@ final class MisconfiguredPolyslug extends RuntimeException
         );
     }
 
+    public static function identityOfRequiresIdentity(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot set `identityOf` without `identity`: the column a token was '
+            .'taken from is read only for an address whose token the identity column no longer holds, '
+            .'so without an identity column it would never be read. Add `identity` naming the column '
+            .'that holds the token, or drop `identityOf`.'
+        );
+    }
+
+    public static function identitySecondRequiresIdentityOf(): self
+    {
+        return new self(
+            'A #[Polyslug] model cannot set `identitySecond` without `identityOf`: a second id tells '
+            .'apart two records that carry the same id in the column `identityOf` names, so without '
+            .'that column there is no id for it to tell apart. Add `identityOf` naming the column the '
+            .'token was taken from, or drop `identitySecond`.'
+        );
+    }
+
     public static function computedSlugMustNotBeUnique(): self
     {
         return new self(

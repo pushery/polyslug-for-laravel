@@ -84,10 +84,11 @@ and the territory is not the package's to invent; map `en => en_US` to get one),
 50,000 URLs and 50 MB — past either, the command splits and writes an index), `types`
 (polymorphic registry).
 
-Four keys also read the environment, so a host can tighten them without publishing the file:
-`POLYSLUG_SQIDS_MIN_LENGTH`, `POLYSLUG_WRITE_MAX_ATTEMPTS` and `POLYSLUG_BACKFILL_TIMEOUT` (a
-value that is not a number, or one below the key's floor of 0, 1 and 1, keeps the default) and
-`POLYSLUG_REQUIRE_SCOPE` (compared against `true`, so write `true`; `1` does not enable it).
+Five keys also read the environment, so a host can tighten them without publishing the file:
+`POLYSLUG_SQIDS_MIN_LENGTH`, `POLYSLUG_WRITE_MAX_ATTEMPTS`, `POLYSLUG_BACKFILL_TIMEOUT` and
+`POLYSLUG_BACKFILL_TRIES` (a value that is not a number, or one below the key's floor of 0, 1, 1
+and 1, keeps the default) and `POLYSLUG_REQUIRE_SCOPE` (compared against `true`, so write `true`;
+`1` does not enable it).
 
 ## Leak-safe identity encoders
 

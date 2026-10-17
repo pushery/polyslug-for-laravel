@@ -350,7 +350,7 @@ return [
     'backfill' => [
         'connection' => null,
         'queue' => null,
-        'tries' => null,
+        'tries' => is_numeric($backfillTries = env('POLYSLUG_BACKFILL_TRIES')) && (int) $backfillTries >= 1 ? (int) $backfillTries : null,
         'timeout' => is_numeric($backfillTimeout = env('POLYSLUG_BACKFILL_TIMEOUT')) && (int) $backfillTimeout >= 1 ? (int) $backfillTimeout : null,
     ],
 
