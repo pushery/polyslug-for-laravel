@@ -51,6 +51,7 @@ use Polyslug\Support\LocaleColumn;
 use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
 use Polyslug\Support\StatusSetting;
+use Polyslug\Support\TailTokens;
 use Polyslug\Support\TokenAlphabet;
 use Stringable;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -487,7 +488,7 @@ trait HasPolyslug
      *
      * A named method rather than a boolean on setSlug(), for a reason that outlives the
      * choice: reclaimActive requires `reclaim`, so a flag could only ever turn the behavior
-     * OFF. A parameter whose `true` means "do what the model already said" is a trap, and the
+     * off. A parameter whose `true` means "do what the model already said" is a trap, and the
      * one place the difference matters is the call site — which is exactly what a name shows
      * and a boolean hides.
      *
@@ -983,7 +984,8 @@ trait HasPolyslug
     }
 
     /**
-     * The record whose identity column holds this token, through the resolution gate.
+     * The record whose identity column holds this token, through the resolution gate, or else the
+     * one the token names by the id that column was taken from (polyslugResolveByIdentitySource()).
      *
      * The column is qualified by the model of the query the gate answers with, so a gate that
      * joins a table of its own keeps the comparison unambiguous.
@@ -993,7 +995,93 @@ trait HasPolyslug
         $query = $this->polyslugResolveQuery($this->polyslugBindingQuery());
         $resolved = $query->where($query->getModel()->qualifyColumn($column), $token)->first();
 
-        return $resolved instanceof static ? $resolved : null;
+        if ($resolved instanceof static) {
+            return $resolved;
+        }
+
+        return $this->polyslugResolveByIdentitySource($column, [$token])[$token] ?? null;
+    }
+
+    /**
+     * The records these tokens name by the id their identity column was taken from, keyed by the
+     * token: the tokens of an address the column no longer holds, written as the whole id or as the
+     * whole id with a second id after a hyphen, the way Polyslug\Support\TailTokens writes them.
+     * Nothing on a model that names no such column (`identityOf`).
+     *
+     * A token moves when the ids that end like it change: the older of two ids leaves, and the
+     * younger takes the short token, and a URL written with the whole id names the record as well.
+     * Every token TailTokens::apart() can have given the id is looked up in the identity column, so
+     * the search stays on that column's index. Of the records found, the first whose ids are the
+     * address's answers, under the shortest token, and the canonical middleware then moves the
+     * address to the token of today. What follows the whole id is read as the second id only on a
+     * model that names the column of one (`identitySecond`).
+     *
+     * @param  list<string>  $tokens
+     * @return array<array-key, static>
+     */
+    private function polyslugResolveByIdentitySource(string $column, array $tokens): array
+    {
+        $config = $this->polyslugConfig();
+        $idColumn = $config->identityOf;
+
+        if ($idColumn === null) {
+            return [];
+        }
+
+        $secondColumn = $config->identitySecond;
+        $named = [];
+
+        foreach ($tokens as $token) {
+            $ids = TailTokens::idsIn($token);
+
+            if ($ids === null) {
+                continue;
+            }
+
+            [$whole, $second] = $ids;
+            $checks = [[$idColumn, $whole]];
+
+            if ($secondColumn !== null && $second !== null) {
+                $checks[] = [$secondColumn, $second];
+            }
+
+            $named[] = [$token, $checks, TailTokens::tokensFor($whole, $secondColumn === null ? null : $second)];
+        }
+
+        $holders = $this->polyslugIdentityHolders($column, array_merge(...array_column($named, 2)));
+        $resolved = [];
+
+        foreach ($named as [$token, $checks, $held]) {
+            foreach ($held as $candidate) {
+                $record = $holders[$candidate] ?? null;
+
+                if ($record !== null && $record->polyslugCarries($checks)) {
+                    $resolved[$token] = $record;
+
+                    break;
+                }
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Whether each of these columns of this record holds its id, read the way a token writes an id.
+     *
+     * @param  list<array{string, string}>  $checks  a column and the id it has to hold
+     */
+    private function polyslugCarries(array $checks): bool
+    {
+        foreach ($checks as [$column, $id]) {
+            $value = $this->polyslugColumnValue($this->getAttribute($column));
+
+            if (! is_scalar($value) || TailTokens::whole((string) $value) !== $id) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -1103,16 +1191,54 @@ trait HasPolyslug
 
     /**
      * The records of many tokens of a model whose token is its identity column: one query per
-     * thousand tokens, through the resolution gate.
+     * thousand tokens, through the resolution gate. A value whose tokens the column holds none of
+     * is looked up once more by the id the column was taken from (polyslugResolveByIdentitySource()).
      *
      * @param  array<array-key, list<string>>  $candidates  the tokens each value may carry, in the order to try them
      * @return array<array-key, static> the record of each value, keyed by the value
      */
     private function polyslugResolveManyByIdentity(string $column, array $candidates): array
     {
+        $records = $this->polyslugIdentityHolders($column, array_merge(...array_values($candidates)));
+        $missed = [];
+
+        foreach ($candidates as $tokens) {
+            if (! array_any($tokens, static fn (string $token): bool => isset($records[$token]))) {
+                $missed[] = $tokens;
+            }
+        }
+
+        // No token is found both ways, since one the column holds is never looked up again, so the
+        // order of a value's tokens still decides. Only the first of two tokens comes before
+        // another, and that is the older `slug_TOKEN` form, which no id is read out of.
+        $records += $this->polyslugResolveByIdentitySource($column, array_merge(...$missed));
+        $resolved = [];
+
+        foreach ($candidates as $value => $tokens) {
+            foreach ($tokens as $token) {
+                if (isset($records[$token])) {
+                    $resolved[$value] = $records[$token];
+
+                    break;
+                }
+            }
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * The records whose identity column holds one of these tokens, keyed by the token, through the
+     * resolution gate: one query per thousand tokens.
+     *
+     * @param  list<string>  $tokens
+     * @return array<array-key, static>
+     */
+    private function polyslugIdentityHolders(string $column, array $tokens): array
+    {
         $records = [];
 
-        foreach (array_chunk(array_values(array_unique(array_merge(...array_values($candidates)))), self::POLYSLUG_RESOLVE_SLICE) as $slice) {
+        foreach (array_chunk(array_values(array_unique($tokens)), self::POLYSLUG_RESOLVE_SLICE) as $slice) {
             $query = $this->polyslugResolveQuery($this->polyslugBindingQuery());
 
             foreach ($query->whereIn($query->getModel()->qualifyColumn($column), $slice)->get() as $record) {
@@ -1128,19 +1254,7 @@ trait HasPolyslug
             }
         }
 
-        $resolved = [];
-
-        foreach ($candidates as $value => $tokens) {
-            foreach ($tokens as $token) {
-                if (isset($records[$token])) {
-                    $resolved[$value] = $records[$token];
-
-                    break;
-                }
-            }
-        }
-
-        return $resolved;
+        return $records;
     }
 
     /**

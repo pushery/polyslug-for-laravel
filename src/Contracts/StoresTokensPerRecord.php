@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Polyslug\Contracts;
 
 /**
- * An encoder whose token is STORED against a record rather than computed from its key.
+ * An encoder whose token is stored against a record rather than computed from its key.
  *
  * The distinction is not academic. A computed token — Sqids, a UUID, the raw key — is a
  * function of the key alone, so two models holding id 1 unavoidably produce the same token
- * and there is nothing an encoder could do about it. A STORED token is a row, and a row can
+ * and there is nothing an encoder could do about it. A stored token is a row, and a row can
  * record who it belongs to. This interface is how an encoder says it can.
  *
  * Polyslug hands the morph type to any encoder that implements it, and each such encoder

@@ -46,6 +46,8 @@ final readonly class PolyslugConfig
         public bool $preserveCase = false,
         public bool $stored = true,
         public ?string $identity = null,
+        public ?string $identityOf = null,
+        public ?string $identitySecond = null,
     ) {
         // An idLess URL is the slug alone, so an idLess model resolves by its slug and the
         // slug must stay unique. `unique: false` (records may share a slug) is therefore only
@@ -137,6 +139,17 @@ final readonly class PolyslugConfig
             throw MisconfiguredPolyslug::identityExcludesIdLess();
         }
 
+        // The column a token was taken from is read only for an address whose token the identity
+        // column no longer holds, and the second id only to tell two records of one id apart, so
+        // each is refused without the column it serves rather than left to do nothing.
+        if ($this->identityOf !== null && $this->identity === null) {
+            throw MisconfiguredPolyslug::identityOfRequiresIdentity();
+        }
+
+        if ($this->identitySecond !== null && $this->identityOf === null) {
+            throw MisconfiguredPolyslug::identitySecondRequiresIdentityOf();
+        }
+
         // A computed slug is written nowhere, so every option that describes what happens to a
         // stored slug would do nothing on it, and idLess, which looks the stored slug up, could
         // not resolve a single URL.
@@ -188,6 +201,8 @@ final readonly class PolyslugConfig
             preserveCase: $this->preserveCase,
             stored: $this->stored,
             identity: $this->identity,
+            identityOf: $this->identityOf,
+            identitySecond: $this->identitySecond,
         );
     }
 
@@ -229,6 +244,8 @@ final readonly class PolyslugConfig
             preserveCase: $attribute->preserveCase,
             stored: $attribute->stored,
             identity: $attribute->identity,
+            identityOf: $attribute->identityOf,
+            identitySecond: $attribute->identitySecond,
         );
     }
 

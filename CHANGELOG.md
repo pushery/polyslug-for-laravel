@@ -4,6 +4,14 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-10-17
+
+### ✨ Added
+
+- **An address the identity column no longer holds still resolves.** `#[Polyslug(identityOf: 'public_id')]` names the column the token in `identity` was taken from, and a URL that carries that id, written whole, resolves to its record while the identity column holds another token: the short end after the older of two ids left, or the end where the URL wrote the whole id. The canonical middleware answers it with a 301 to the token of today. `identitySecond` names the column of a second id, and a URL with the second id after the whole id resolves to the record both name. The record is looked up under every token `TailTokens::apart()` can have given it, so the search stays on the identity column's index.
+- **`TailTokens::apart()` tells two records with the same id apart by a second id.** Its new third argument takes a second id of each entry, such as the other system's own id of the record. Of two entries with the same id it decides which one comes first, whatever order they arrive in, and the later one answers under `{id}-{second id}` instead of `{id}-2`. `-2`, `-3` remain for entries whose second ids are equal too. `TailTokens::idsIn()` reads the ids back out of a token, and `TailTokens::tokensFor()` names every token `apart()` can have given an id.
+- **The backfill job's attempts can be set from the environment.** `POLYSLUG_BACKFILL_TRIES` sets `backfill.tries`, the number of attempts a chunk of `polyslug:backfill --queue` gets before it fails for good. A value that is not a number, or one below `1`, keeps `null`, which leaves the queue's own default in place, as before.
+
 ## [0.23.0] - 2026-10-16
 
 ### ✨ Added
