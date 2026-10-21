@@ -112,7 +112,7 @@ trait HasPolyslug
      */
     public function slugs(): MorphMany
     {
-        // Deliberately NOT `$this->morphMany(...)`. That would hand back a plain MorphMany,
+        // Deliberately not `$this->morphMany(...)`. That would hand back a plain MorphMany,
         // whose eager constraint inlines integer keys into the SQL text and cannot compare
         // against the varchar `sluggable_id` on PostgreSQL — see StringKeyedMorphMany.
         //
