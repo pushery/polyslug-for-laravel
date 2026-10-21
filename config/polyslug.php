@@ -200,7 +200,7 @@ return [
     | How the canonical-redirect middleware decides which locale a request is for.
     | 'app' (default) uses the active application locale. 'route' reads a {locale}
     | route segment (route_param) so a /{locale}/... URL is compared against — and
-    | redirected to — the RIGHT locale's slug, even when the app locale differs (in
+    | redirected to — the right locale's slug, even when the app locale differs (in
     | CLI, queues, or before a locale-setting middleware runs).
     |
     | 'missing' controls the route key when a locale has no slug yet: 'fallback'

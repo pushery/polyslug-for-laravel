@@ -201,7 +201,7 @@ final class PolyslugServiceProvider extends ServiceProvider
             ) ?? throw new NotFoundHttpException;
         });
 
-        // Route::polyslug('/pages/{page}', ...) wires SubstituteBindings THEN polyslug.canonical
+        // Route::polyslug('/pages/{page}', ...) wires SubstituteBindings then polyslug.canonical
         // in the correct order, so self-heal can never silently no-op from a mis-ordered stack.
         //
         // $action is Closure|array|string|null rather than `callable`, which is what this
@@ -315,7 +315,7 @@ final class PolyslugServiceProvider extends ServiceProvider
     /**
      * Lay the shipped defaults under a published config file, all the way down.
      *
-     * NOT `mergeConfigFrom()`, and the difference only shows up months later. Laravel's
+     * Not `mergeConfigFrom()`, and the difference only shows up months later. Laravel's
      * own merge is a single `array_merge` at the top level, so it asks one question per
      * top-level key: is it there? A host that published the config file has every top-level
      * key, which means a key added inside one of those blocks by a later release never
