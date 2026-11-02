@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Pushery\SQLens\Attributes\NoSqlOnDriver;
 
 /**
  * On MySQL, the columns that say which record a row belongs to and under which name compare byte
@@ -45,7 +46,10 @@ use Illuminate\Support\Facades\Schema;
  * of 'Abc' gets a token of its own the next time its URL is rendered. Neither ever happened on
  * PostgreSQL or SQLite.
  */
-return new class extends Migration
+return new
+#[NoSqlOnDriver('pgsql', reason: 'the key collation is a MySQL setting; PostgreSQL compares these columns byte for byte already')]
+#[NoSqlOnDriver('sqlite', reason: 'the key collation is a MySQL setting; SQLite compares these columns byte for byte already')]
+class extends Migration
 {
     /** @var array<string, list<string>> each table, with the string columns its keys and lookups compare */
     private const array KEY_COLUMNS = [

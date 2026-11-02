@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Pushery\SQLens\Attributes\NoSqlOnDriver;
 
 /**
  * On PostgreSQL, the slug column folds ASCII letters the way PHP does, whatever the database's
@@ -29,7 +30,10 @@ use Illuminate\Support\Facades\Schema;
  * Moving to `C` can only split names the old collation folded together, never join two, so the
  * rebuilt unique indexes cannot refuse a row they hold.
  */
-return new class extends Migration
+return new
+#[NoSqlOnDriver('mysql', reason: 'the slug collation answers a PostgreSQL locale; MySQL pins its own collations in 0005 and 0008')]
+#[NoSqlOnDriver('sqlite', reason: 'the slug collation answers a PostgreSQL locale; the lower() of SQLite folds ASCII alone, whatever the locale')]
+class extends Migration
 {
     private const string CAPITALS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 

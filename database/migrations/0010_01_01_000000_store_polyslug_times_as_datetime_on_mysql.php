@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Pushery\SQLens\Attributes\NoSqlOnDriver;
 
 /**
  * On MySQL, the time columns of the package's tables are DATETIME rather than TIMESTAMP.
@@ -26,7 +27,10 @@ use Illuminate\Support\Facades\Schema;
  *
  * Changing the type rewrites each of the three tables once.
  */
-return new class extends Migration
+return new
+#[NoSqlOnDriver('pgsql', reason: 'only MySQL declares these columns TIMESTAMP; PostgreSQL stores a timestamp without time zone already')]
+#[NoSqlOnDriver('sqlite', reason: 'only MySQL declares these columns TIMESTAMP; SQLite stores the times as text already')]
+class extends Migration
 {
     /** @var array<string, list<string>> each table, with its time columns */
     private const array TIME_COLUMNS = [

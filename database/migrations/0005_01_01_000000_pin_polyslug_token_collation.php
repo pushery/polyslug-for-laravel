@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Pushery\SQLens\Attributes\NoSqlOnDriver;
 
 /**
  * A token column must compare byte-exactly, or the entropy it promises is not the entropy
@@ -40,7 +41,10 @@ use Illuminate\Support\Facades\Schema;
  * it never resolved on PostgreSQL or SQLite, so the package answered the same request two
  * ways depending on the engine underneath it.
  */
-return new class extends Migration
+return new
+#[NoSqlOnDriver('pgsql', reason: 'the token collation is a MySQL setting; PostgreSQL compares the token columns byte for byte already')]
+#[NoSqlOnDriver('sqlite', reason: 'the token collation is a MySQL setting; SQLite compares the token columns byte for byte already')]
+class extends Migration
 {
     /** @var list<array{string, string}> table => column */
     private const array TOKEN_COLUMNS = [

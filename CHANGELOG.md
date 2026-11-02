@@ -4,6 +4,16 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-11-02
+
+### ✨ Added
+
+- **`Model::polyslugForget($keys)` forgets the records a query deleted.** A delete that runs as a query fires no `deleted` event, so the slug rows of its records stayed behind, with text taken from their titles, and so did their short links and identity tokens. Passed the keys, before or after such a delete, it deletes every slug row of those records, the history and released rows included. Their short links and identity tokens move to the type `#forgotten`, with the token in place of the key: they no longer name a record, and their tokens stay taken, so the sequential scheme never hands a published URL or a printed code to another record. A forgotten token answers 404. Tokens of the untyped lane stay, because their key can belong to a record of another model. The keys go a thousand per statement, and `Polyslug\Support\ForgottenRecords` does the work for a morph type.
+
+### 🐛 Fixed
+
+- **The four migrations that change nothing on most engines now say so to SQLens.** `pin_polyslug_token_collation`, `pin_polyslug_key_collation` and `store_polyslug_times_as_datetime_on_mysql` act on MySQL alone, `pin_polyslug_slug_collation` on PostgreSQL alone, and each returns before its first statement on every other engine. SQLens reads a migration that ran and wrote no SQL as one it could not check, so `sqlens:lint` and `sqlens:predeploy` failed a pending one as `CAP.L0.NOT_CAPTURABLE`, already at level 0, and stopped the deploy of an application that installs the package. Each migration now carries `#[NoSqlOnDriver]` for every engine it leaves alone, with the reason. The attribute is read from the source and never instantiated, so an application without SQLens needs nothing.
+
 ## [0.25.0] - 2026-10-21
 
 ### ✨ Added
@@ -1165,7 +1175,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.22.1...v0.23.0
