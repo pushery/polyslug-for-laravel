@@ -47,6 +47,7 @@ use Polyslug\PolyslugConfigResolver;
 use Polyslug\Relations\StringKeyedMorphMany;
 use Polyslug\Support\ConfigChoice;
 use Polyslug\Support\DeletionState;
+use Polyslug\Support\ForgottenRecords;
 use Polyslug\Support\LocaleColumn;
 use Polyslug\Support\ReservedWords;
 use Polyslug\Support\SlugRequest;
@@ -1747,6 +1748,30 @@ trait HasPolyslug
         if ($this->polyslugConfig()->onDelete === 'release') {
             $this->slugs()->delete();
         }
+    }
+
+    /**
+     * Forget what Polyslug holds for records of this model that a query deleted.
+     *
+     * A delete that runs as a query fires no `deleted` event, so polyslugOnDeleted() never runs
+     * for those records. Call this with their keys, before or after the delete:
+     *
+     *     $keys = Document::query()->where('workspace_id', $workspace->id)->pluck('id');
+     *
+     *     Document::polyslugForget($keys);
+     *     Document::query()->whereKey($keys)->delete();
+     *
+     * The slug rows are deleted, as a hard delete deletes them. The short links and identity
+     * tokens keep their tokens and stop naming the records, so no later record is given a token
+     * that a published URL or a printed code already carries. ForgottenRecords says why.
+     *
+     * @param  iterable<mixed>  $keys  the records' primary keys, forgotten a thousand per statement
+     */
+    public static function polyslugForget(iterable $keys): void
+    {
+        $model = static::query()->getModel();
+
+        ForgottenRecords::forget($model->getMorphClass(), $keys, $model->polyslugSlugModel());
     }
 
     private function polyslugIsForceDeleting(): bool
