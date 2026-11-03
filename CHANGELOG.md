@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-11-03
+
+### ✨ Added
+
+- **`polyslug:forget-orphans` forgets what Polyslug holds for records that no longer exist.** A foreign-key cascade, a delete from before an application called `polyslugForget()`, or a new way of deleting that leaves the call out kept the slug rows, with text from the records' titles, and the short links and identity tokens. The command reads the keys of every model type the stores hold rows for, asks which records are gone without global scopes, so a record in the trash counts as present, and forgets those keys the way `polyslugForget()` does, a thousand at a time. `--dry-run` counts them per type and changes nothing, `--type` names the types to look at, and a scheduled run catches the next cascade.
+
 ## [0.26.0] - 2026-11-02
 
 ### ✨ Added
@@ -1175,7 +1181,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.23.0...v0.24.0

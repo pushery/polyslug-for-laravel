@@ -21,6 +21,7 @@ use Laravel\Head\HeadManager;
 use Override;
 use Polyslug\Console\BackfillSlugsCommand;
 use Polyslug\Console\DoctorCommand;
+use Polyslug\Console\ForgetOrphansCommand;
 use Polyslug\Console\MakePolyslugCommand;
 use Polyslug\Console\SitemapCommand;
 use Polyslug\Contracts\IdentityEncoder;
@@ -233,7 +234,7 @@ final class PolyslugServiceProvider extends ServiceProvider
         $this->registerHeadIntegration();
 
         if ($this->app->runningInConsole()) {
-            $this->commands([BackfillSlugsCommand::class, DoctorCommand::class, MakePolyslugCommand::class, SitemapCommand::class]);
+            $this->commands([BackfillSlugsCommand::class, DoctorCommand::class, ForgetOrphansCommand::class, MakePolyslugCommand::class, SitemapCommand::class]);
             $this->registerPublishing();
         }
     }

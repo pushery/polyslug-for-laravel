@@ -356,6 +356,10 @@ returning whichever row sorts first.
 - Backfill: `php artisan polyslug:backfill "App\\Models\\Page" [--locale=de] [--queue] [--chunk=N]`.
   The model class is a required argument, not an option — the command backfills one
   sluggable model at a time.
+- Orphans: `php artisan polyslug:forget-orphans [--dry-run] [--type=…]` forgets the slugs, short
+  links and tokens of every key whose record is gone (a foreign-key cascade, a delete by query that
+  never called `polyslugForget()`), asked without global scopes, so a trashed record keeps its rows.
+  Schedule it daily where foreign keys cascade.
 - Analytics: `polyslug.analytics.enabled` fires a `SlugRedirected` event on each self-heal.
 - Diagnostics: `php artisan polyslug:doctor` checks the encoder and token configuration, the
   model replacements in `polyslug.models`, the four status settings, the uniqueness indexes and
