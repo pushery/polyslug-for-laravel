@@ -34,6 +34,7 @@ use Polyslug\Contracts\TokenScheme;
 use Polyslug\Encoders\RandomTokenEncoder;
 use Polyslug\Encoders\SequentialTokenEncoder;
 use Polyslug\Encoders\SqidsEncoder;
+use Polyslug\Enums\PathScope;
 use Polyslug\Events\SlugChanged;
 use Polyslug\Events\SlugReclaimed;
 use Polyslug\Exceptions\CouldNotIssueToken;
@@ -1464,6 +1465,14 @@ trait HasPolyslug
             return null;
         }
 
+        if ($scope !== null && in_array(PathScope::Parent, $scope, true)) {
+            $scope = $this->polyslugScopeAlongThePath($scope, $value);
+
+            if ($scope === null) {
+                return null;
+            }
+        }
+
         $query = $this->polyslugSlugModel()->newQuery()
             ->where('sluggable_type', $this->getMorphClass())
             ->where('locale', $this->polyslugLocale())
@@ -1502,6 +1511,34 @@ trait HasPolyslug
         }
 
         return $this->polyslugPickByPath($candidates, $value);
+    }
+
+    /**
+     * The scope with each column handed to the path filled in: the key of the record the ancestor
+     * part of the path resolves to through this model's own resolution, or no value where the path
+     * has no ancestor part. Null where the ancestor part names no record, since nothing under a
+     * parent that does not exist is the record addressed.
+     *
+     * The ancestor part resolves with the same scope, one level up, so each level is looked up by
+     * the full key the write path stored for it, and an old path of a renamed or moved ancestor
+     * resolves through that ancestor's earlier slugs.
+     *
+     * @param  array<string, mixed>  $scope
+     * @return array<string, mixed>|null
+     */
+    private function polyslugScopeAlongThePath(array $scope, string $path): ?array
+    {
+        $parent = null;
+
+        if (str_contains($path, '/')) {
+            $parent = $this->resolveRouteBinding(Str::beforeLast($path, '/'));
+
+            if ($parent === null) {
+                return null;
+            }
+        }
+
+        return array_map(static fn (mixed $value): mixed => $value === PathScope::Parent ? $parent?->getKey() : $value, $scope);
     }
 
     /**
@@ -1558,6 +1595,10 @@ trait HasPolyslug
      * A column the returned array omits contributes an empty value to the key, which is
      * what a model with an unset scope attribute stores too. Naming a partial scope is
      * therefore a real answer, not a half-answer.
+     *
+     * A model nested under records of its own class names its parent column with
+     * `PathScope::Parent`: the ancestor part of the path decides that value, so a caller that
+     * knows the rest of the scope names it whole, `polyslug.resolution.require_scope` included.
      *
      * @return array<string, mixed>|null
      */

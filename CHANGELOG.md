@@ -4,6 +4,13 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-11-11
+
+### ✨ Added
+
+- **A nested slug-only model names its parent column with `PathScope::Parent`, and the path decides it.** A model nested under records of its own class carries its parent in the scope, and only the path names it, so `polyslug.resolution.require_scope` refused every address of such a model whose caller knew the rest of the scope. `polyslugResolutionScope()` now takes `PathScope::Parent` for that column: the lookup resolves the ancestor part first, through the model's own resolution, and fills the column with the key of the record it names. Each level is found by the full key it was stored with, the old path of a renamed ancestor still resolves, and a path whose ancestor part names nothing resolves to nothing.
+- **`PolyslugResolver::redirectStatus()` names the status of the package's redirects for an application that redirects itself.** An application that resolved through the resolver and sent its own redirect from an old address to the current one read `polyslug.redirect.status` itself and checked it against its own copy of the statuses a redirect may carry, which goes stale when the package changes them. The method reads the setting and checks it as the package's redirects do: a value that is no redirect status gives `301`.
+
 ## [0.27.1] - 2026-11-07
 
 ### 📚 Documentation
@@ -1187,7 +1194,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.27.1...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.27.1...v0.28.0
 [0.27.1]: https://github.com/pushery/polyslug-for-laravel/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.25.0...v0.26.0

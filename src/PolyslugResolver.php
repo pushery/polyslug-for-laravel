@@ -7,6 +7,7 @@ namespace Polyslug;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\Sluggable;
+use Polyslug\Support\StatusSetting;
 
 /**
  * Resolves a `{type}/{slug_id}` pair to a model using the polyslug.types registry —
@@ -37,5 +38,17 @@ final readonly class PolyslugResolver
         return $withTrashed && $model::isSoftDeletable()
             ? $model->resolveSoftDeletableRouteBinding($value, $field)
             : $model->resolveRouteBinding($value, $field);
+    }
+
+    /**
+     * The status a redirect to the current address of a record carries: `polyslug.redirect.status`
+     * when it is one a redirect may carry (301, 302, 303, 307 or 308), and 301 otherwise.
+     *
+     * The package's own redirects carry it, and an application that resolves and redirects itself
+     * takes the same status from here rather than reading the setting and checking it again.
+     */
+    public function redirectStatus(): int
+    {
+        return StatusSetting::redirect('polyslug.redirect.status', 301);
     }
 }
