@@ -129,6 +129,8 @@ final class SitemapCommand extends Command
 
     /**
      * A configured ceiling, or the protocol's own where the value is no positive whole number.
+     *
+     * @param  mixed  $value  the configured ceiling, which a host may write as any type
      */
     private function ceiling(mixed $value, int $default): int
     {

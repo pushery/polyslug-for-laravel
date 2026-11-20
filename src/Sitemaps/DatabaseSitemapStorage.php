@@ -111,11 +111,17 @@ final class DatabaseSitemapStorage implements SitemapStorage
         return DB::connection($this->connection);
     }
 
+    /**
+     * @param  mixed  $value  a column of a row as the driver answers it, of whatever type the driver gives it
+     */
     private function text(mixed $value): ?string
     {
         return is_string($value) ? $value : null;
     }
 
+    /**
+     * @param  mixed  $value  a column of a row as the driver answers it, of whatever type the driver gives it
+     */
     private function whole(mixed $value): int
     {
         return is_numeric($value) ? (int) $value : 0;

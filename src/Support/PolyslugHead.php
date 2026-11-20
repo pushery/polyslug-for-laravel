@@ -317,6 +317,7 @@ final class PolyslugHead
      * the spelling a reader of that package reaches for first. Dropped as a non-string,
      * it left an empty list behind and was refused as an answer that said nothing.
      *
+     * @param  mixed  $directives  the robots directives a consumer returned, which the contract leaves unconstrained
      * @return list<string>
      */
     private static function normalizeDirectives(mixed $directives): array

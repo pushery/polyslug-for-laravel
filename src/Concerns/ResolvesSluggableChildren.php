@@ -28,6 +28,14 @@ use Polyslug\Contracts\Sluggable;
  */
 trait ResolvesSluggableChildren
 {
+    /**
+     * @param  mixed  $childType  the name of the child's parameter as Laravel hands it, untyped in the method of Model this overrides
+     * @param  mixed  $value  the route parameter as Laravel hands it, untyped in the method of Model this overrides
+     * @param  mixed  $field  the field the route names, untyped in the method of Model this overrides
+     *
+     * @phpstan-param  string  $childType
+     * @phpstan-param  string|null  $field
+     */
     public function resolveChildRouteBinding(mixed $childType, mixed $value, mixed $field): ?Model
     {
         return $this->polyslugResolveChild($childType, $value, $field, withTrashed: false);
@@ -36,12 +44,22 @@ trait ResolvesSluggableChildren
     /**
      * The same binding on a route declared with `->withTrashed()`, which Laravel resolves
      * through this method instead: deleted children of this parent are admitted.
+     *
+     * @param  mixed  $childType  the name of the child's parameter as Laravel hands it, untyped in the method of Model this overrides
+     * @param  mixed  $value  the route parameter as Laravel hands it, untyped in the method of Model this overrides
+     * @param  mixed  $field  the field the route names, untyped in the method of Model this overrides
+     *
+     * @phpstan-param  string  $childType
+     * @phpstan-param  string|null  $field
      */
     public function resolveSoftDeletableChildRouteBinding(mixed $childType, mixed $value, mixed $field): ?Model
     {
         return $this->polyslugResolveChild($childType, $value, $field, withTrashed: true);
     }
 
+    /**
+     * @param  mixed  $value  the route parameter as Laravel hands it to the binding, untyped there
+     */
     private function polyslugResolveChild(string $childType, mixed $value, ?string $field, bool $withTrashed): ?Model
     {
         $relationship = $this->{$this->childRouteBindingRelationshipName($childType)}();

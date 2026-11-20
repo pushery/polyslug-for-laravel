@@ -242,6 +242,7 @@ final class MisconfiguredPolyslug extends RuntimeException
     }
 
     /**
+     * @param  mixed  $value  the value the configuration holds, which a host may write as any type
      * @param  list<string>  $allowed
      */
     public static function unknownConfigValue(string $key, mixed $value, array $allowed): self

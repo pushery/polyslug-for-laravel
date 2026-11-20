@@ -4,6 +4,26 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-11-20
+
+### 🔧 Changed
+
+- **`Support\MigrationLocks` is internal.** 0.25.0 added it as public API, for a migration of this package that alters a table and is published into an application. No migration of this package calls it, so the class leaves the public API: an application that calls it from a migration of its own keeps working until a later release changes or removes it.
+
+### 🐛 Fixed
+
+- **`POLYSLUG_REQUIRE_SCOPE=yes`, `on` and `1` turn the scope requirement on.** The configuration compared the variable with `true`, so every other spelling read as off, and an application that wrote one of them went on resolving a scoped model whose caller named no scope. The switch is read through `Polyslug\Support\EnvSwitch::read()` now: `true`, `1`, `yes` and `on` turn it on, whatever their case, and any other value leaves it off. An application that published `config/polyslug.php` keeps the comparison in its copy until it takes the new line.
+- **`polyslug:forget-orphans` runs once at a time also where nobody passed `--isolated`.** Laravel takes a command's isolation lock only where the option is set, so a run from a schedule line without it, or one started by hand, could start beside a run under way and forget the same records twice. The command sets the option itself now, and a second run ends at once with the line Laravel prints for it.
+
+### 📚 Documentation
+
+- **The start page shows the package at work.** A page answers under the address its title gives it, and after the title changes, the old address answers with a `301` to the new one while the token after the slug stays the same.
+- **The Boost skill names the methods of `IdentityEncoder` without the form of a static call.** It wrote `IdentityEncoder::encode(int|string): string`, which an agent copying it would call statically, and PHP refuses that for an instance method.
+- **The descriptions of the documentation pages fit a search result.** Each page that described itself in more than about 160 characters says first what it answers, within that length, so a search result shows the description whole.
+- **The installation page publishes the migrations once.** Its block ran the tag of the migrations and then the tag for everything, and with Laravel's default configuration the second command wrote each migration again under a new date, which `php artisan migrate` runs as a new migration. The block publishes the configuration alone now, and the page names the other two tags and says to publish the migrations once.
+- **The README, the start page and the package description drop two claims no test holds.** They said hreflang and Laravel Cloud work without any setup. They now say the package builds the hreflang set itself, and name PostgreSQL and MySQL 8.4 as the databases Laravel Cloud runs.
+- **The PHP examples import every class they name.** An example that opens with `use` lines is the head of a file a reader copies, and a class those lines leave out resolves in the namespace of that file instead: `extends Model` in a file under `namespace App\Models;` asks for `App\Models\Model`. Each example that named `Model`, `HasMany`, `Route` or `Event`, the `#[Polyslug]` attribute, the `HasPolyslug` trait, the `Sluggable` interface, or a model or controller of the application without importing it now imports it.
+
 ## [0.28.0] - 2026-11-11
 
 ### ✨ Added
@@ -1194,7 +1214,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.28.0...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.29.0...HEAD
+[0.29.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.27.1...v0.28.0
 [0.27.1]: https://github.com/pushery/polyslug-for-laravel/compare/v0.27.0...v0.27.1
 [0.27.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.26.0...v0.27.0

@@ -173,7 +173,7 @@ final class FileSitemapStorage implements SitemapStorage
         $own = [];
 
         foreach ($this->sources as $source) {
-            $scheme = '/^'.preg_quote($source, '/').'-\d+'.($extension === '' ? '' : '\.'.preg_quote($extension, '/')).'$/';
+            $scheme = '/^'.preg_quote($source, '/').'-\d+'.($extension === '' ? '' : '\.'.preg_quote($extension, '/')).'$/D';
 
             foreach ($this->previous as $file) {
                 if (preg_match($scheme, $file) === 1) {

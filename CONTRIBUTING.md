@@ -46,7 +46,7 @@ here, so that floor is the private repository's problem rather than yours.
 
 ## Quality bar
 
-This package holds itself to a strict quality bar — Laravel Pint, Larastan at `max`,
+This package holds itself to a strict quality bar — Laravel Pint, Larastan at level 10,
 Rector, and Pest with 100% line and type coverage, plus mutation testing, a
 real-browser end-to-end suite, and cross-engine tests against real PostgreSQL 18 and
 MySQL 8.4 (the engines it runs on in production, where the one-current-slug guarantee

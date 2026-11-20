@@ -942,6 +942,10 @@ trait HasPolyslug
         return $this->polyslugRouteKey();
     }
 
+    /**
+     * @param  mixed  $value  the route parameter as Laravel hands it, untyped in the method of Model this overrides
+     * @param  mixed  $field  the field the route names, untyped in the method of Model this overrides
+     */
     public function resolveRouteBinding(mixed $value, mixed $field = null): ?static
     {
         if (is_string($field) && $field !== '') {
@@ -1301,6 +1305,9 @@ trait HasPolyslug
      * own version compares the whole value with the key column, so every record answered 404,
      * deleted or not. The value is resolved the way resolveRouteBinding() resolves it, the gate
      * included, with deleted records admitted.
+     *
+     * @param  mixed  $value  the route parameter as Laravel hands it, untyped in the method of Model this overrides
+     * @param  mixed  $field  the field the route names, untyped in the method of Model this overrides
      */
     public function resolveSoftDeletableRouteBinding(mixed $value, mixed $field = null): ?static
     {
@@ -1357,8 +1364,8 @@ trait HasPolyslug
      * Resolve this model type by primary key through the resolution gate
      * (polyslugResolveQuery), so tenant/visibility scoping applies uniformly to every
      * resolution path — bound routes, the polymorphic resolver, slug-only, and /go.
-     * `mixed` because every caller hands over an untyped value (a route parameter, a
-     * decoded token); the gate's whereKey() narrows it.
+     *
+     * @param  mixed  $key  a route parameter or a decoded token, which every caller hands over untyped; the gate's whereKey() narrows it
      */
     public function polyslugResolveByKey(mixed $key): ?static
     {
@@ -1381,6 +1388,8 @@ trait HasPolyslug
      * resolveRouteBindingQuery() is called rather than written out, so an override of it is
      * honored and the check HasUuids and HasUlids put there still refuses a malformed
      * identifier before it reaches the database.
+     *
+     * @param  mixed  $value  the value a route or a caller gives the field, untyped where it comes from
      */
     private function polyslugResolveByField(mixed $value, string $field): ?static
     {
@@ -1399,6 +1408,7 @@ trait HasPolyslug
      * @template TModel of Model
      *
      * @param  Builder<TModel>  $query
+     * @param  mixed  $value  the value the field is compared with, as the route or the caller hands it
      */
     private static function polyslugConstrainToField(Model $model, Builder $query, mixed $value, string $field): BuilderContract
     {
@@ -1479,10 +1489,7 @@ trait HasPolyslug
             ->whereRaw('lower(slug) = ?', [Str::lower($slug)]);
 
         if ($scope !== null) {
-            $query->where('scope', $this->polyslugScopeKey(
-                $config,
-                static fn (string $column): mixed => $scope[$column] ?? null,
-            ));
+            $query->where('scope', $this->polyslugScopeKey($config, $scope));
         }
 
         // A record that held the slug more than once has a row for each time, so each key is
@@ -1538,7 +1545,13 @@ trait HasPolyslug
             }
         }
 
-        return array_map(static fn (mixed $value): mixed => $value === PathScope::Parent ? $parent?->getKey() : $value, $scope);
+        foreach ($scope as $column => $value) {
+            if ($value === PathScope::Parent) {
+                $scope[$column] = $parent?->getKey();
+            }
+        }
+
+        return $scope;
     }
 
     /**
@@ -2109,7 +2122,7 @@ trait HasPolyslug
 
     private function polyslugScope(PolyslugConfig $config): string
     {
-        return $this->polyslugScopeKey($config, fn (string $column): mixed => $this->getAttribute($column));
+        return $this->polyslugScopeKey($config, $this->only($config->scope));
     }
 
     /**
@@ -2120,14 +2133,14 @@ trait HasPolyslug
      * places is a key that eventually disagrees with itself, and the disagreement would
      * look like "no such slug".
      *
-     * @param  callable(string): mixed  $valueFor
+     * @param  array<string, mixed>  $columnValues
      */
-    private function polyslugScopeKey(PolyslugConfig $config, callable $valueFor): string
+    private function polyslugScopeKey(PolyslugConfig $config, array $columnValues): string
     {
         $values = [];
 
         foreach ($config->scope as $column) {
-            $value = $this->polyslugColumnValue($valueFor($column));
+            $value = $this->polyslugColumnValue($columnValues[$column] ?? null);
 
             // The cast states the intent; it does not change the result. Concatenation coerces
             // every scalar to the same string either way, so this is for the reader and the
@@ -2166,6 +2179,9 @@ trait HasPolyslug
      * regions shared one scope. An enum counts by its value, a date by the string the model
      * stores for it, a Stringable by its text. An array still contributes nothing, because no
      * encoding of it would survive a change of cast.
+     *
+     * @param  mixed  $value  a column's value as the model casts it: a scalar, an enum, a date, a Stringable, an array or null
+     * @return mixed the value an enum, a date or a Stringable stands for, and any other value as it came
      */
     private function polyslugColumnValue(mixed $value): mixed
     {

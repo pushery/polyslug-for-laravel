@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Polyslug\Encoders\RandomTokenEncoder;
+use Polyslug\Support\EnvSwitch;
 
 return [
 
@@ -420,21 +421,17 @@ return [
     | stricter, and needing to publish the config to reach it would freeze every other default in
     | here at the same time -- including a security default a later release corrects.
     |
-    | Compared against `true` rather than cast. Laravel's env() converts the strings `true` and
-    | `false` and leaves everything else a string, so a bare cast would read
-    | `POLYSLUG_REQUIRE_SCOPE=off` as on -- and this switch refuses resolutions, so a wrong reading
-    | breaks resolving instead of loosening it. Anything that is not an unambiguous `true` keeps
-    | the documented default. Write `POLYSLUG_REQUIRE_SCOPE=true`; `1` is a string here and does
-    | not enable it.
-    |
-    | filter_var() with FILTER_VALIDATE_BOOL is deliberately not used: it would also read `1`,
-    | `on` and `yes` as true, and a switch that refuses resolutions keeps the one spelling that
-    | enables it.
+    | Read with EnvSwitch::read(), never cast. Laravel's env() converts only the strings `true` and
+    | `false`, so a cast would read `POLYSLUG_REQUIRE_SCOPE=off` as on. `true`, `1`, `yes` and `on`
+    | turn the switch on, whatever their case, and `false`, `0`, `no`, `off`, an empty value and
+    | any other spelling leave it off. The rule is a method of the package rather than an
+    | expression in this file, so a published copy of the file takes a fix to the rule with the
+    | next update of the package.
     |
     */
 
     'resolution' => [
-        'require_scope' => env('POLYSLUG_REQUIRE_SCOPE', false) === true,
+        'require_scope' => EnvSwitch::read(env('POLYSLUG_REQUIRE_SCOPE'), false),
     ],
 
     /*

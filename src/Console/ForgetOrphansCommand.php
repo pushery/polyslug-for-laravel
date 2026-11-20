@@ -41,6 +41,14 @@ final class ForgetOrphansCommand extends Command implements Isolatable
     /** @var string */
     protected $description = 'Forget the slugs, short links and identity tokens of records that no longer exist.';
 
+    /**
+     * A second run while one is under way ends at once, also where nobody passed --isolated: Laravel takes the
+     * isolation lock only where the option is set, and a plain schedule line or a run by hand sets nothing.
+     *
+     * @var bool
+     */
+    protected $isolated = true;
+
     /** How many keys one page reads and one existence query binds. */
     private const int PAGE = 1_000;
 
@@ -182,7 +190,7 @@ final class ForgetOrphansCommand extends Command implements Isolatable
                 }
 
                 $page = array_values(array_map(
-                    static fn (mixed $key): string => is_scalar($key) ? (string) $key : '',
+                    $this->keyText(...),
                     $query->distinct()->orderBy($keyColumn)->limit(self::PAGE)->pluck($keyColumn)->all(),
                 ));
 
@@ -219,10 +227,20 @@ final class ForgetOrphansCommand extends Command implements Isolatable
         }
 
         $present = array_map(
-            static fn (mixed $key): string => is_scalar($key) ? (string) $key : '',
+            $this->keyText(...),
             $model->newQueryWithoutScopes()->whereKey($keys)->pluck($model->getKeyName())->all(),
         );
 
         return array_values(array_diff($keys, $present));
+    }
+
+    /**
+     * A key as text, or an empty string for a key that is no scalar.
+     *
+     * @param  mixed  $key  a key as the database answers it, of whatever type the key column has
+     */
+    private function keyText(mixed $key): string
+    {
+        return is_scalar($key) ? (string) $key : '';
     }
 }

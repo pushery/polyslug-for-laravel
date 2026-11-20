@@ -120,7 +120,7 @@ final class TailTokens
      */
     public static function idsIn(string $token): ?array
     {
-        if (preg_match('/^([a-z0-9]+)(?:-([a-z0-9]+))?(?:-[0-9]+)?$/', $token, $parts) !== 1) {
+        if (preg_match('/^([a-z0-9]+)(?:-([a-z0-9]+))?(?:-[0-9]+)?$/D', $token, $parts) !== 1) {
             return null;
         }
 
