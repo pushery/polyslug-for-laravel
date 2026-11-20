@@ -60,6 +60,8 @@ final class StatusSetting
     }
 
     /**
+     * @param  mixed  $status  the configured status, which a host may write as any type
+     *
      * @phpstan-assert-if-true int $status
      */
     public static function isRedirect(mixed $status): bool
@@ -68,6 +70,8 @@ final class StatusSetting
     }
 
     /**
+     * @param  mixed  $status  the configured status, which a host may write as any type
+     *
      * @phpstan-assert-if-true int $status
      */
     public static function isError(mixed $status): bool

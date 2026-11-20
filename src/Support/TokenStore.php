@@ -424,6 +424,8 @@ final class TokenStore
      * Every property on a row object is `mixed` as far as static analysis is concerned, and
      * that is not pedantry — a driver can hand back a resource or an object for some column
      * types. Casting blind would turn that into a nonsense key rather than a miss.
+     *
+     * @param  mixed  $value  a column of a row object, which a driver may hand back as a resource or an object
      */
     private function columnString(mixed $value): ?string
     {

@@ -10,6 +10,8 @@ use Polyslug\Contracts\Sluggable;
 /**
  * Runtime target of the @polyslugHreflang Blade directive. Kept as a plain method so
  * the compiled directive is a simple, analyzable call rather than inline logic.
+ *
+ * Part of the public API, because the compiled views of an application call it by name.
  */
 final class PolyslugBlade
 {

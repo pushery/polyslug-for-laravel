@@ -373,7 +373,11 @@ final class DoctorCommand extends Command
         };
     }
 
-    /** A value as a reader of the config file would write it: a string in quotes, a float with its point. */
+    /**
+     * A value as a reader of the config file would write it: a string in quotes, a float with its point.
+     *
+     * @param  mixed  $value  a configuration value, which a host may write as any type
+     */
     private function shown(mixed $value): string
     {
         return match (true) {

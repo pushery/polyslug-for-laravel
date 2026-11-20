@@ -87,12 +87,12 @@ and the territory is not the package's to invent; map `en => en_US` to get one),
 Five keys also read the environment, so a host can tighten them without publishing the file:
 `POLYSLUG_SQIDS_MIN_LENGTH`, `POLYSLUG_WRITE_MAX_ATTEMPTS`, `POLYSLUG_BACKFILL_TIMEOUT` and
 `POLYSLUG_BACKFILL_TRIES` (a value that is not a number, or one below the key's floor of 0, 1, 1
-and 1, keeps the default) and `POLYSLUG_REQUIRE_SCOPE` (compared against `true`, so write `true`;
-`1` does not enable it).
+and 1, keeps the default) and `POLYSLUG_REQUIRE_SCOPE` (`true`, `1`, `yes` or `on` turns it on, and
+any other value leaves it off).
 
 ## Leak-safe identity encoders
 
-`IdentityEncoder::encode(int|string): string` / `decode(string): int|string|null` (null → 404,
+An `IdentityEncoder` has `encode(int|string): string` and `decode(string): int|string|null` (null → 404,
 never a fuzzy match). Built in: `RandomTokenEncoder` (**the default** — unguessable random
 token in `polyslug_tokens`, leak-free for integer keys), `SequentialTokenEncoder` (same
 store, filled by counting: the shortest token not yet taken — `0`, `1`, … `z`, then `00` — so

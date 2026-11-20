@@ -329,7 +329,7 @@ final class EnsureCanonicalSlug
      * The URL generator renders a model through the parameter's field, which is the address
      * the route binds by.
      */
-    private function urlParameter(Route $route, int|string $name, Sluggable $model, string $locale): mixed
+    private function urlParameter(Route $route, int|string $name, Sluggable $model, string $locale): string|Sluggable
     {
         return $route->bindingFieldFor($name) === null ? $model->polyslugRouteKeyForLocale($locale) : $model;
     }

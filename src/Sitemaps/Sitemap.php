@@ -528,6 +528,8 @@ final readonly class Sitemap
     /**
      * A configured ceiling, or the protocol's own where the value is no positive whole number: a zero
      * ceiling would close a part before every record, and a negative one could never be met.
+     *
+     * @param  mixed  $value  the configured ceiling, which a host may write as any type
      */
     private function ceiling(mixed $value, int $default): int
     {

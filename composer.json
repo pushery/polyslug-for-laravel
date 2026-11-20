@@ -1,7 +1,7 @@
 {
     "$schema": "https://getcomposer.org/schema.json",
     "name": "pushery/polyslug-for-laravel",
-    "description": "Polymorphic, multilingual routable identity for Eloquent — leak-safe IDs, per-locale slugs, and hreflang out of the box.",
+    "description": "Polymorphic, multilingual routable identity for Eloquent — leak-safe IDs, per-locale slugs, and hreflang built in.",
     "keywords": [
         "laravel",
         "eloquent",

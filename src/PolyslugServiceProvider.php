@@ -44,6 +44,18 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 final class PolyslugServiceProvider extends ServiceProvider
 {
     /**
+     * The sections of the config that are catalogs, as dotted paths from the config key: maps whose
+     * keys the host chooses, one entry per plan, per document or per signing key. A key that a
+     * published catalog leaves out was removed by the host rather than added by a later release, so
+     * the merge takes a published catalog as it stands. A catalog the host never published arrives
+     * whole from the default. A package lists such a section here, for example
+     * 'polyslug.plans'.
+     *
+     * @var list<string>
+     */
+    private const array CATALOG_SECTIONS = [];
+
+    /**
      * Whether the bundled migrations are registered automatically. Disable with
      * self::ignoreMigrations() to publish and manage them in the host app instead.
      */
@@ -339,11 +351,14 @@ final class PolyslugServiceProvider extends ServiceProvider
      * `array_is_list([])` is true, which is the behavior you want here: an empty array is a
      * host saying "none", and descending into it could only re-introduce what it emptied.
      *
-     * Note the early return, because it bounds what this can rescue. A host with a cached
-     * config is never merged at all — that is the framework's design, not this method's
-     * limit. For those installations the published file is the whole truth, which is why a
-     * package that reads a nested key needs its read-site fallback to agree with the
-     * shipped default. The two are halves of one guarantee.
+     * Recursion stops at a catalog as well, a section named in CATALOG_SECTIONS. Its keys are the
+     * host's, so a key missing from the published catalog is one the host removed, and laying the
+     * default under it would hand that entry back.
+     *
+     * A host with a cached config is not merged at runtime: the cache already holds the merge
+     * `config:cache` did when it ran. A key a later release adds is missing from it until the host
+     * caches again, so a package that reads a nested key needs its read-site fallback to agree with
+     * the shipped default.
      */
     private function mergeConfigRecursivelyFrom(string $path, string $key): void
     {
@@ -363,15 +378,19 @@ final class PolyslugServiceProvider extends ServiceProvider
         $repository->set($key, $this->mergeConfigSections(
             is_array($shipped) ? $shipped : [],
             is_array($existing) ? $existing : [],
+            $key.'.',
+            self::CATALOG_SECTIONS,
         ));
     }
 
     /**
      * @param  array<array-key, mixed>  $shipped
      * @param  array<array-key, mixed>  $published
+     * @param  string  $path  the dotted path of the two maps, so a catalog is recognized at any depth
+     * @param  list<string>  $catalogs  the dotted paths of the catalogs, which the merge takes as published
      * @return array<array-key, mixed>
      */
-    private function mergeConfigSections(array $shipped, array $published): array
+    private function mergeConfigSections(array $shipped, array $published, string $path = '', array $catalogs = []): array
     {
         foreach ($shipped as $key => $value) {
             if (! array_key_exists($key, $published)) {
@@ -380,12 +399,12 @@ final class PolyslugServiceProvider extends ServiceProvider
                 continue;
             }
 
-            // Recurse only where both sides are maps. If either is a list, or the published
-            // value is a scalar or an explicit null, what the host wrote stands. An explicit
-            // null is a value like any other here, which keeps "write => null to switch this
-            // off" working exactly as a shipped config file describes it.
-            if (is_array($value) && is_array($published[$key]) && ! array_is_list($value) && ! array_is_list($published[$key])) {
-                $published[$key] = $this->mergeConfigSections($value, $published[$key]);
+            // Recurse only where both sides are maps and the section is no catalog. If either is a
+            // list, or the published value is a scalar or an explicit null, what the host wrote
+            // stands. An explicit null is a value like any other here, which keeps "write => null
+            // to switch this off" working exactly as a shipped config file describes it.
+            if (is_array($value) && is_array($published[$key]) && ! array_is_list($value) && ! array_is_list($published[$key]) && ! in_array($path.$key, $catalogs, true)) {
+                $published[$key] = $this->mergeConfigSections($value, $published[$key], $path.$key.'.', $catalogs);
             }
         }
 
