@@ -39,4 +39,22 @@ final readonly class SlugRequest
         public ?string $connection = null,
         public ?Closure $identity = null,
     ) {}
+
+    /**
+     * A copy of this request with another source text and every other input kept, so a generator
+     * that rewrites the text before it hands the request on carries each input it does not name.
+     */
+    public function withSource(string $source): self
+    {
+        return new self(
+            source: $source,
+            sluggableType: $this->sluggableType,
+            locale: $this->locale,
+            scope: $this->scope,
+            exceptId: $this->exceptId,
+            reserved: $this->reserved,
+            connection: $this->connection,
+            identity: $this->identity,
+        );
+    }
 }

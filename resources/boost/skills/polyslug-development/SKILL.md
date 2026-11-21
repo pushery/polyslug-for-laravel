@@ -28,6 +28,8 @@ automatically (`php artisan migrate`). Scaffold with `php artisan make:polyslug 
 namespace in the name becomes a subdirectory, so `Blog/Page` lands in `app/Models/Blog`.
 
 ```php
+namespace App\Models;
+
 use Polyslug\Attributes\Polyslug;
 use Polyslug\Concerns\HasPolyslug;
 use Polyslug\Contracts\Sluggable;
@@ -208,6 +210,8 @@ the second address is announced nowhere. Nothing fails — it is never discovera
 hreflang cannot rescue it because a crawler reads that only after fetching the page.
 
 ```php
+namespace App\Models;
+
 final class Account extends Model implements ProvidesAddressLocales, Sluggable
 {
     use HasPolyslug;
