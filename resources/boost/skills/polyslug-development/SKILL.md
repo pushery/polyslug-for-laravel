@@ -192,6 +192,8 @@ One slug per locale; the reciprocal hreflang set is built from the same resolver
 canonical URL, so they cannot drift.
 
 ```php
+$page = Page::query()->firstOrFail(); // one of your pages
+
 $page->setSlug('de', 'Hallo Welt');
 $page->hreflangTags(fn (string $locale, string $key) => route('pages.show', [$locale, $key]));
 ```
@@ -254,8 +256,10 @@ application pinned below that, Composer refuses the install; everything else in 
 unchanged.
 
 ```php
+$article = Article::query()->firstOrFail(); // one of your sluggable models
+
 Head::polyslug($article)->title($article->title)->description($article->excerpt);
-Head::polyslug($article, $request->route('locale')); // on a /{locale}/... route
+Head::polyslug($article, request()->route('locale')); // on a /{locale}/... route
 ```
 
 Two rules. **Pick one hreflang path** — `Head::polyslug()` OR `@polyslugHreflang`, never both,
@@ -376,6 +380,8 @@ returning whichever row sorts first.
 Use the `InteractsWithPolyslug` trait in a test case:
 
 ```php
+$page = Page::factory()->create(['title' => 'Hello World']);
+
 $this->assertHasCurrentSlug($page, 'hello-world');
 $this->assertSlugResolves(Page::class, $page->getRouteKey(), $page->id);
 $this->assertSlugRedirects('/pages/old-slug_TOKEN', '/pages/new-slug_TOKEN');

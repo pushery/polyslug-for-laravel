@@ -4,6 +4,13 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.1] - 2026-11-22
+
+### 📚 Documentation
+
+- **The page on sluggable models keeps to US spelling.** Its note on the reads of a save spells "amortize".
+- **The examples of the Boost skill set every variable they read.** Three of them read `$page`, `$article` or `$request` without setting it, so code copied from them stopped at its first call. Each now finds or creates its model first, and the example for `Head::polyslug()` reads the locale through `request()`.
+
 ## [0.30.0] - 2026-11-21
 
 ### ✨ Added
@@ -1225,7 +1232,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.0...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.1...HEAD
+[0.30.1]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.27.1...v0.28.0
