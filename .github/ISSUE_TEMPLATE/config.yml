@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Documentation
+    url: https://docs.pushery.com/polyslug-for-laravel/
+    about: How to install, configure and use the package. Many questions are answered there.
   - name: Report a security vulnerability
     url: https://github.com/pushery/polyslug-for-laravel/security/advisories/new
     about: Please report security issues privately, never as a public issue. See SECURITY.md.
