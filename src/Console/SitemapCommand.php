@@ -12,6 +12,8 @@ use Polyslug\Exceptions\CouldNotBuildSitemap;
 use Polyslug\Sitemaps\FileSitemapStorage;
 use Polyslug\Sitemaps\Sitemap;
 use Polyslug\Sitemaps\SluggableSource;
+use Symfony\Component\Console\Formatter\OutputFormatter;
+use Symfony\Component\Console\Output\OutputInterface;
 
 /**
  * The sitemap of the models in `polyslug.sitemap.types`, as files or on standard output.
@@ -56,8 +58,8 @@ final class SitemapCommand extends Command
         } catch (CouldNotBuildSitemap $refusal) {
             // A sitemap of one source in files refuses for one reason: it needs an index, and the
             // index has to name each part by absolute URL. Nothing was published.
-            $this->error('This sitemap needs '.$refusal->files.' files, and an index has to name each one by '
-                .'absolute URL. Set app.url or pass --base-url.');
+            $this->error(OutputFormatter::escape('This sitemap needs '.$refusal->files.' files, and an index has to name each one by '
+                .'absolute URL. Set app.url or pass --base-url.'));
 
             return self::FAILURE;
         }
@@ -68,9 +70,9 @@ final class SitemapCommand extends Command
             $written += $part->urls;
         }
 
-        $this->info(count($parts) > 1
+        $this->info(OutputFormatter::escape(count($parts) > 1
             ? $written.' URL(s) written across '.count($parts).' file(s), indexed by ['.$path.'].'
-            : $written.' URL(s) written to ['.$path.'].');
+            : $written.' URL(s) written to ['.$path.'].'));
         $this->reportUnaddressed($source);
 
         return self::SUCCESS;
@@ -92,15 +94,15 @@ final class SitemapCommand extends Command
             }
         }
 
-        $this->line(Sitemap::urlset($entries));
+        $this->output->writeln(Sitemap::urlset($entries), OutputInterface::OUTPUT_RAW);
         $this->reportUnaddressed($source);
 
         $maxUrls = $this->ceiling($config->get('polyslug.sitemap.max_urls'), 50_000);
         $maxBytes = $this->ceiling($config->get('polyslug.sitemap.max_bytes'), 50 * 1024 * 1024);
 
         if (count($entries) > $maxUrls || $bytes > $maxBytes - Sitemap::ENVELOPE_RESERVE) {
-            $this->warn('This sitemap is past the protocol limit of '.$maxUrls.' URLs or '
-                .$maxBytes.' bytes. Pass --path so it can be split across an index.');
+            $this->warn(OutputFormatter::escape('This sitemap is past the protocol limit of '.$maxUrls.' URLs or '
+                .$maxBytes.' bytes. Pass --path so it can be split across an index.'));
         }
 
         return self::SUCCESS;
@@ -116,14 +118,14 @@ final class SitemapCommand extends Command
     private function reportUnaddressed(SluggableSource $source): void
     {
         foreach ($source->unaddressed() as $class => $count) {
-            $this->warn(sprintf(
+            $this->warn(OutputFormatter::escape(sprintf(
                 '%s: %d record(s) skipped — the bound %s threw instead of returning a URL. '
                 .'Remove the type from polyslug.sitemap.types, or implement canAddress() on the '
                 .'resolver to say so without throwing.',
                 $class,
                 $count,
                 class_basename(PolyslugUrlResolver::class),
-            ));
+            )));
         }
     }
 
