@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Jobs\BackfillSlugsJob;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 final class BackfillSlugsCommand extends Command
 {
@@ -61,7 +62,7 @@ final class BackfillSlugsCommand extends Command
                 $dispatched++;
             });
 
-            $this->info("Dispatched {$dispatched} backfill job(s) for [{$model}].");
+            $this->info(OutputFormatter::escape("Dispatched {$dispatched} backfill job(s) for [{$model}]."));
 
             return self::SUCCESS;
         }
@@ -75,7 +76,7 @@ final class BackfillSlugsCommand extends Command
             }
         }
 
-        $this->info("Backfilled {$backfilled} slug(s) for [{$model}].");
+        $this->info(OutputFormatter::escape("Backfilled {$backfilled} slug(s) for [{$model}]."));
 
         return self::SUCCESS;
     }

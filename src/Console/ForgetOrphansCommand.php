@@ -16,6 +16,7 @@ use Polyslug\Models\PolyslugShortLink;
 use Polyslug\Models\PolyslugSlug;
 use Polyslug\Support\ForgottenRecords;
 use Polyslug\Support\TokenStore;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * Forgets what Polyslug holds for records that no longer exist.
@@ -71,7 +72,7 @@ final class ForgetOrphansCommand extends Command implements Isolatable
             $slugs = $relation instanceof Relation ? $relation->getRelated() : null;
 
             if (! $model instanceof Model || ! $slugs instanceof PolyslugSlug) {
-                $this->warn(sprintf('[%s] names no model that uses HasPolyslug under this type. Its rows are left as they are.', $type));
+                $this->warn(OutputFormatter::escape(sprintf('[%s] names no model that uses HasPolyslug under this type. Its rows are left as they are.', $type)));
 
                 continue;
             }
@@ -79,17 +80,17 @@ final class ForgetOrphansCommand extends Command implements Isolatable
             $gone = $this->forgetGone($type, $model, $slugs, $dryRun);
             $total += $gone;
 
-            $this->line(sprintf(
+            $this->line(OutputFormatter::escape(sprintf(
                 $dryRun ? '[%s] %d %s gone, to be forgotten.' : '[%s] %d %s gone, forgotten.',
                 $type,
                 $gone,
                 $gone === 1 ? 'record' : 'records',
-            ));
+            )));
         }
 
-        $this->info($dryRun
+        $this->info(OutputFormatter::escape($dryRun
             ? sprintf('Dry run: %d %s gone, nothing was changed.', $total, $total === 1 ? 'record is' : 'records are')
-            : sprintf('%d %s forgotten.', $total, $total === 1 ? 'record' : 'records'));
+            : sprintf('%d %s forgotten.', $total, $total === 1 ? 'record' : 'records')));
 
         return self::SUCCESS;
     }

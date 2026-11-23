@@ -27,6 +27,7 @@ use Polyslug\Support\StatusSetting;
 use Polyslug\Support\TableLookup;
 use Polyslug\Support\TokenAlphabet;
 use ReflectionMethod;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Throwable;
 
 final class DoctorCommand extends Command
@@ -182,7 +183,7 @@ final class DoctorCommand extends Command
         // One short line per finding: the console component wraps long lines, and a
         // wrapped line is one an operator skims past.
         foreach ($ungated as $class) {
-            $this->line(sprintf('  ! [%s] does not override polyslugResolveQuery().', $class));
+            $this->line(OutputFormatter::escape(sprintf('  ! [%s] does not override polyslugResolveQuery().', $class)));
         }
 
         $this->line('    Any slug of those types resolves to any row.');
@@ -219,7 +220,7 @@ final class DoctorCommand extends Command
             try {
                 Container::getInstance()->make($abstract);
             } catch (Throwable $exception) {
-                $this->line(sprintf('  ✗ %s', $exception->getMessage()));
+                $this->line(OutputFormatter::escape(sprintf('  ✗ %s', $exception->getMessage())));
                 $ok = false;
             }
         }
@@ -251,7 +252,7 @@ final class DoctorCommand extends Command
                 continue;
             }
 
-            $this->line(sprintf('  ✗ %s: [%s] is not %s, so Polyslug uses %s.', $key, $this->shown($value), $kind === 'integer' ? 'an integer' : 'a string', $this->usedInstead($key)));
+            $this->line(OutputFormatter::escape(sprintf('  ✗ %s: [%s] is not %s, so Polyslug uses %s.', $key, $this->shown($value), $kind === 'integer' ? 'an integer' : 'a string', $this->usedInstead($key))));
             $ok = false;
         }
 
@@ -286,7 +287,7 @@ final class DoctorCommand extends Command
         try {
             $config = PolyslugConfigResolver::resolve(new $class);
         } catch (Throwable $exception) {
-            $this->line(sprintf('  ! [%s] cannot read its configuration, so its encoder options are not checked: %s', $class, $exception->getMessage()));
+            $this->line(OutputFormatter::escape(sprintf('  ! [%s] cannot read its configuration, so its encoder options are not checked: %s', $class, $exception->getMessage())));
 
             return true;
         }
@@ -313,14 +314,14 @@ final class DoctorCommand extends Command
                 continue;
             }
 
-            $this->line(sprintf(
+            $this->line(OutputFormatter::escape(sprintf(
                 "  ✗ [%s] encoderOptions['%s']: [%s] is not %s, so Polyslug uses %s.",
                 $class,
                 $option,
                 $this->shown($value),
                 $kind === 'integer' ? 'an integer' : 'a string',
                 $instead,
-            ));
+            )));
             $ok = false;
         }
 
@@ -353,7 +354,7 @@ final class DoctorCommand extends Command
 
         foreach ($setByTheApplication as $option => $set) {
             if ($set && ($options[$option] ?? null) === null) {
-                $this->line(sprintf("  ! [%s] encoderOptions leave out '%s', so it takes the Sqids default instead of polyslug.sqids.%s.", $class, $option, $option));
+                $this->line(OutputFormatter::escape(sprintf("  ! [%s] encoderOptions leave out '%s', so it takes the Sqids default instead of polyslug.sqids.%s.", $class, $option, $option)));
             }
         }
     }
@@ -430,7 +431,7 @@ final class DoctorCommand extends Command
 
         foreach ($spaces as $label => [$connection, $table, $alphabet]) {
             if (! TableLookup::exists($table, $connection->getName())) {
-                $this->line(sprintf('  ! [%s] is missing — run the migrations.', $table));
+                $this->line(OutputFormatter::escape(sprintf('  ! [%s] is missing — run the migrations.', $table)));
 
                 continue;
             }
@@ -464,14 +465,14 @@ final class DoctorCommand extends Command
                 continue;
             }
 
-            $this->line(sprintf(
+            $this->line(OutputFormatter::escape(sprintf(
                 '  ! %s: %s of %s %d-character tokens are taken (%d%%).',
                 $label,
                 number_format($issued),
                 $this->approximate($space),
                 $length,
                 (int) round($used * 100),
-            ));
+            )));
             $this->line(sprintf('    New tokens widen to %d characters as this fills.', $length + 1));
         }
     }
@@ -525,7 +526,7 @@ final class DoctorCommand extends Command
         try {
             $encoder = new ReflectionMethod($class, 'polyslugEncoder')->invoke(new $class);
         } catch (Throwable $exception) {
-            $this->line(sprintf('  ! [%s] cannot build its encoder, so its own token space is not reported: %s', $class, $exception->getMessage()));
+            $this->line(OutputFormatter::escape(sprintf('  ! [%s] cannot build its encoder, so its own token space is not reported: %s', $class, $exception->getMessage())));
 
             return null;
         }
@@ -600,7 +601,7 @@ final class DoctorCommand extends Command
 
         foreach ($classes as $class) {
             if (! is_string($class) || ! class_exists($class) || ! is_a($class, IdentityEncoder::class, true)) {
-                $this->line(sprintf('  ✗ [%s] is not a valid IdentityEncoder.', is_string($class) ? $class : gettype($class)));
+                $this->line(OutputFormatter::escape(sprintf('  ✗ [%s] is not a valid IdentityEncoder.', is_string($class) ? $class : gettype($class))));
                 $ok = false;
 
                 continue;
@@ -612,7 +613,7 @@ final class DoctorCommand extends Command
             try {
                 Container::getInstance()->make($class);
             } catch (Throwable $e) {
-                $this->line(sprintf('  ✗ [%s] cannot be built: %s', $class, $e->getMessage()));
+                $this->line(OutputFormatter::escape(sprintf('  ✗ [%s] cannot be built: %s', $class, $e->getMessage())));
                 $ok = false;
             }
         }
@@ -648,12 +649,12 @@ final class DoctorCommand extends Command
             $shown = is_string($configured) ? $configured : get_debug_type($configured);
 
             if (! in_array($key, self::REPLACEABLE_MODELS, true)) {
-                $this->line(sprintf(
+                $this->line(OutputFormatter::escape(sprintf(
                     '  ✗ polyslug.models: [%s] is not a model Polyslug replaces, so its entry [%s] is never read. The keys are [%s].',
                     $key,
                     $shown,
                     implode('] and [', self::REPLACEABLE_MODELS),
-                ));
+                )));
                 $ok = false;
 
                 continue;
@@ -675,7 +676,7 @@ final class DoctorCommand extends Command
                 $reason = 'cannot be instantiated';
             }
 
-            $this->line(sprintf('  ✗ polyslug.models: [%s] for [%s] %s, so Polyslug uses [%s].', $shown, $key, $reason, $used));
+            $this->line(OutputFormatter::escape(sprintf('  ✗ polyslug.models: [%s] for [%s] %s, so Polyslug uses [%s].', $shown, $key, $reason, $used)));
             $ok = false;
         }
 
@@ -716,7 +717,7 @@ final class DoctorCommand extends Command
                 $reason = 'not a client error status (400 to 499)';
             }
 
-            $this->line(sprintf(
+            $this->line(OutputFormatter::escape(sprintf(
                 '  ✗ %s: [%s] is %s, so Polyslug %s %d.',
                 $setting['key'],
                 // A string in quotes, so `'302'` reads as the string it is; a number as written;
@@ -725,7 +726,7 @@ final class DoctorCommand extends Command
                 $reason,
                 $setting['redirect'] ? 'redirects with' : 'answers with',
                 $setting['default'],
-            ));
+            )));
             $ok = false;
         }
 
@@ -761,10 +762,10 @@ final class DoctorCommand extends Command
 
         foreach (['polyslug_slugs_current_unique', 'polyslug_slugs_one_current'] as $name) {
             if (! array_key_exists($name, $unique)) {
-                $this->line(sprintf('  ✗ unique index [%s] is missing — run the migrations.', $name));
+                $this->line(OutputFormatter::escape(sprintf('  ✗ unique index [%s] is missing — run the migrations.', $name)));
                 $ok = false;
             } elseif (! $unique[$name]) {
-                $this->line(sprintf('  ✗ index [%s] exists but is not unique, so two current slugs can collide — drop it and run the migrations.', $name));
+                $this->line(OutputFormatter::escape(sprintf('  ✗ index [%s] exists but is not unique, so two current slugs can collide — drop it and run the migrations.', $name)));
                 $ok = false;
             }
         }

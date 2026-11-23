@@ -4,6 +4,16 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.2] - 2026-11-23
+
+### 🔧 Changed
+
+- **`symfony/console` is a declared dependency.** The commands escape what they print with its output formatter, and `polyslug:sitemap` writes its XML through its output unformatted. Every Laravel version the package supports installs the component already, so no installation resolves differently.
+
+### 🐛 Fixed
+
+- **`polyslug:doctor`, `polyslug:backfill`, `polyslug:forget-orphans` and `polyslug:sitemap` print values as they stand.** Symfony's console formatter read a part of a value that looks like a style tag as styling and dropped it, in a configuration value `polyslug:doctor` reports, an exception message or a model type read from the database. `polyslug:sitemap` without `--path` now hands its XML to the console without the formatter.
+
 ## [0.30.1] - 2026-11-22
 
 ### 📚 Documentation
@@ -1232,7 +1242,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.1...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.2...HEAD
+[0.30.2]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.1...v0.30.2
 [0.30.1]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.28.0...v0.29.0
