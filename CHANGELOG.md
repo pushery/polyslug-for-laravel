@@ -4,6 +4,12 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.3] - 2026-11-24
+
+### 📚 Documentation
+
+- **A page of configuration examples shows the URL each shape gives.** A blog, a multilingual shop whose slug follows the language while the token after `_` stays, a link shortener, a counted short code, a CMS page and a documentation tree, each with the setting that makes it. The README carries the short version.
+
 ## [0.30.2] - 2026-11-23
 
 ### 🔧 Changed
@@ -1242,7 +1248,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.2...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.3...HEAD
+[0.30.3]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.2...v0.30.3
 [0.30.2]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.1...v0.30.2
 [0.30.1]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.0...v0.30.1
 [0.30.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.29.0...v0.30.0

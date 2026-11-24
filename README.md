@@ -97,12 +97,25 @@ Rename the page and the old URL `301`s to the new one, by itself.
   MySQL — two genuinely different mechanisms, and the suite proves both against real
   PostgreSQL 18 and MySQL 8.4 servers rather than inferring one from the other.
 
+## URL examples
+
+| URL | Setting | Suits |
+|---|---|---|
+| `/blog/laravel-routing-explained_k3f9dlq7x2mv8bnc` | `#[Polyslug(source: 'title')]` | articles and products that get renamed |
+| `/en/products/red-shirt_k3f9dlq7x2mv8bnc` and `/de/products/rotes-hemd_k3f9dlq7x2mv8bnc` | a slug per locale and `'locale' => ['source' => 'route']` | multilingual shops: the slug follows the language, the token after `_` stays |
+| `/s/x7k2m9q` | `#[Polyslug(slugless: true, encoderOptions: ['length' => 7])]` | link shorteners, share links, QR codes |
+| `/about-us` | `#[Polyslug(source: 'title', idLess: true)]` | CMS pages whose name is the address |
+| `/docs/getting-started/installation` | `idLess: true`, `scope: 'parent_id'` and `polyslugParent()` | documentation trees and category hierarchies |
+
+Each one with its route and what it suits: [Configuration examples](https://docs.pushery.com/polyslug-for-laravel/configuration-examples).
+
 ## Documentation
 
 **Full docs at [docs.pushery.com/polyslug-for-laravel](https://docs.pushery.com/polyslug-for-laravel/).**
 
 - [Installation](https://docs.pushery.com/polyslug-for-laravel/installation) — requirements, the migration, publishing
 - [Quick start](https://docs.pushery.com/polyslug-for-laravel/quick-start) — a sluggable model and a self-healing route
+- [Configuration examples](https://docs.pushery.com/polyslug-for-laravel/configuration-examples) — the URL a blog, a multilingual shop, a link shortener and a CMS get, and the settings behind each
 - [Features](https://docs.pushery.com/polyslug-for-laravel/features) — encoders, hreflang, nested paths, sitemaps, short links
 - [laravel/head](https://docs.pushery.com/polyslug-for-laravel/features/laravel-head) — canonical URL, hreflang and indexability in Laravel's `<head>` package
 - [Recipes](https://docs.pushery.com/polyslug-for-laravel/recipes) — twelve app shapes wired end to end
