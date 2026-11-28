@@ -24,7 +24,7 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
 
-            $table->index(['sluggable_type', 'sluggable_id', 'locale'], 'polyslug_slugs_sluggable_index');
+            $table->index(['sluggable_type', 'sluggable_id', 'locale'], $this->index('polyslug_slugs_sluggable_index'));
         });
 
         // Two partial unique indexes guarantee: (1) exactly one current, non-deleted slug
@@ -54,12 +54,12 @@ return new class extends Migration
             // non-indexable, and slug transliteration is not an immutable built-in anyway.
             // The identical statement runs on both engines.
             DB::statement(
-                'CREATE UNIQUE INDEX polyslug_slugs_current_unique '
+                'CREATE UNIQUE INDEX '.$this->wrapped($this->index('polyslug_slugs_current_unique')).' '
                 .'ON '.$this->table('polyslug_slugs').' (sluggable_type, locale, scope, lower(slug)) '
                 .'WHERE is_current AND deleted_at IS NULL'
             );
             DB::statement(
-                'CREATE UNIQUE INDEX polyslug_slugs_one_current '
+                'CREATE UNIQUE INDEX '.$this->wrapped($this->index('polyslug_slugs_one_current')).' '
                 .'ON '.$this->table('polyslug_slugs').' (sluggable_type, sluggable_id, locale, scope) '
                 .'WHERE is_current AND deleted_at IS NULL'
             );
@@ -88,7 +88,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->unique('token');
-            $table->unique(['sluggable_type', 'sluggable_id', 'locale'], 'polyslug_short_links_target_unique');
+            $table->unique(['sluggable_type', 'sluggable_id', 'locale'], $this->index('polyslug_short_links_target_unique'));
         });
     }
 
@@ -107,5 +107,27 @@ return new class extends Migration
     private function table(string $name): string
     {
         return Schema::getConnection()->getQueryGrammar()->wrapTable($name);
+    }
+
+    /**
+     * The name of an index of this package on the connection. PostgreSQL and SQLite allow an index
+     * name once per schema, so there the name carries the table prefix where the connection
+     * prefixes its indexes, as a name Laravel derives does: a second install under another prefix in
+     * the same schema builds its own index. MySQL allows an index name once per table, and the name
+     * stays as it is.
+     */
+    private function index(string $name): string
+    {
+        $connection = Schema::getConnection();
+
+        return in_array($connection->getDriverName(), ['pgsql', 'sqlite'], true) && (bool) $connection->getConfig('prefix_indexes')
+            ? $connection->getTablePrefix().$name
+            : $name;
+    }
+
+    /** An index name as raw SQL writes it, quoted by the connection's grammar. */
+    private function wrapped(string $name): string
+    {
+        return Schema::getConnection()->getQueryGrammar()->wrap($name);
     }
 };

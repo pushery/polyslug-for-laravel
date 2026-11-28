@@ -9,6 +9,7 @@ use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Polyslug\Contracts\SitemapStorage;
+use Polyslug\Contracts\StagesSitemapParts;
 
 /**
  * A sitemap in a table of the application's, a row for each part, so every node of a deployment
@@ -21,9 +22,16 @@ use Polyslug\Contracts\SitemapStorage;
  * one sitemap that already has rows wait for each other instead of interleaving.
  *
  * Each part is served as `<source>-<number>.xml`.
+ *
+ * The parts of a cut that runs over several writes wait in the same table, under their source's
+ * name with `:staged:` in front. parts() and body() never read them, and promote() serves them in
+ * place of the source's parts.
  */
-final class DatabaseSitemapStorage implements SitemapStorage
+final class DatabaseSitemapStorage implements SitemapStorage, StagesSitemapParts
 {
+    /** What a staged part's source starts with, so no part that is served is ever one. */
+    private const string STAGED = ':staged:';
+
     private bool $writing = false;
 
     /**
@@ -48,8 +56,14 @@ final class DatabaseSitemapStorage implements SitemapStorage
         $parts = [];
 
         foreach ($query->get() as $row) {
+            $source = $this->text($row->source ?? null) ?? '';
+
+            if (str_starts_with($source, self::STAGED)) {
+                continue;
+            }
+
             $parts[] = new SitemapPart(
-                $this->text($row->source ?? null) ?? '',
+                $source,
                 $this->whole($row->number ?? null),
                 $this->text($row->starts_at ?? null),
                 $this->whole($row->urls ?? null),
@@ -99,6 +113,40 @@ final class DatabaseSitemapStorage implements SitemapStorage
     {
         $this->writing = false;
         $this->database()->rollBack();
+    }
+
+    public function stage(SitemapPart $part): void
+    {
+        $this->put(new SitemapPart(self::STAGED.$part->source, $part->number, $part->startsAt, $part->urls, $part->lastModified, $part->body));
+    }
+
+    public function staged(string $source): array
+    {
+        $parts = [];
+
+        foreach ($this->rows()->where('source', self::STAGED.$source)->select(['number', 'starts_at', 'urls', 'lastmod'])->orderBy('number')->get() as $row) {
+            $parts[] = new SitemapPart(
+                $source,
+                $this->whole($row->number ?? null),
+                $this->text($row->starts_at ?? null),
+                $this->whole($row->urls ?? null),
+                $this->text($row->lastmod ?? null),
+            );
+        }
+
+        return $parts;
+    }
+
+    public function promote(string $source, int $parts): void
+    {
+        $this->rows()->where('source', $source)->delete();
+        $this->rows()->where('source', self::STAGED.$source)->where('number', '<=', $parts)->update(['source' => $source]);
+        $this->discard($source);
+    }
+
+    public function discard(string $source): void
+    {
+        $this->rows()->where('source', self::STAGED.$source)->delete();
     }
 
     private function rows(): Builder

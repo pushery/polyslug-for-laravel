@@ -30,6 +30,7 @@ namespace in the name becomes a subdirectory, so `Blog/Page` lands in `app/Model
 ```php
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Model;
 use Polyslug\Attributes\Polyslug;
 use Polyslug\Concerns\HasPolyslug;
 use Polyslug\Contracts\Sluggable;
@@ -91,6 +92,30 @@ Five keys also read the environment, so a host can tighten them without publishi
 `POLYSLUG_BACKFILL_TRIES` (a value that is not a number, or one below the key's floor of 0, 1, 1
 and 1, keeps the default) and `POLYSLUG_REQUIRE_SCOPE` (`true`, `1`, `yes` or `on` turns it on, and
 any other value leaves it off).
+
+## Publishing
+
+Nothing has to be published. `polyslug-config` publishes the configuration, `polyslug-migrations`
+the migrations, and the `polyslug` tag both at once:
+
+```bash
+php artisan vendor:publish --tag=polyslug-config
+```
+
+The package goes on loading its migrations after they are published, and with Laravel's default
+configuration the published copies run under a new date, so the next `migrate` would create
+`polyslug_slugs`, `polyslug_tokens` and `polyslug_short_links` a second time and fail. Call
+`ignoreMigrations()` in a service provider's `register()` first, then publish them once:
+
+```php
+use Polyslug\PolyslugServiceProvider;
+
+PolyslugServiceProvider::ignoreMigrations();
+```
+
+```bash
+php artisan vendor:publish --tag=polyslug-migrations
+```
 
 ## Leak-safe identity encoders
 

@@ -123,12 +123,13 @@ Each one with its route and what it suits: [Configuration examples](https://docs
 
 ## Requirements
 
-- PHP 8.4+
+- PHP 8.4+ (tested on 8.4.27, 8.5.x and 8.6.x)
 - Laravel 13+ — 13.17+ only for the optional `laravel/head` integration, which is that
   package's own floor, not Polyslug's
 - PostgreSQL 18+, MySQL 8.4+, or SQLite — the uniqueness guarantees are enforced natively on
-  each, and the full suite runs against all three. PostgreSQL and MySQL 8.4 are the
-  databases Laravel Cloud runs (serverless Postgres and MySQL 8.4 LTS).
+  each, and the full suite runs against all three, tested on PostgreSQL 18.7 and
+  MySQL 8.4.13. PostgreSQL and MySQL 8.4 are the databases Laravel Cloud runs (serverless
+  Postgres and MySQL 8.4 LTS).
 - The `bcmath` or `gmp` extension, only if you use `SqidsEncoder`
 
 ## Security

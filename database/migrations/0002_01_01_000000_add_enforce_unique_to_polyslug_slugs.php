@@ -6,6 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Polyslug\Support\TableLookup;
 
 return new class extends Migration
 {
@@ -34,9 +35,9 @@ return new class extends Migration
             );
             DB::statement('CREATE UNIQUE INDEX polyslug_slugs_current_unique ON '.$this->table('polyslug_slugs').' (polyslug_current_key)');
         } else {
-            DB::statement('DROP INDEX polyslug_slugs_current_unique');
+            DB::statement('DROP INDEX '.$this->wrapped($this->standing('polyslug_slugs_current_unique')));
             DB::statement(
-                'CREATE UNIQUE INDEX polyslug_slugs_current_unique '
+                'CREATE UNIQUE INDEX '.$this->wrapped($this->index('polyslug_slugs_current_unique')).' '
                 .'ON '.$this->table('polyslug_slugs').' (sluggable_type, locale, scope, lower(slug)) '
                 .'WHERE is_current AND deleted_at IS NULL AND enforce_unique'
             );
@@ -81,9 +82,9 @@ return new class extends Migration
             );
             DB::statement('CREATE UNIQUE INDEX polyslug_slugs_current_unique ON '.$this->table('polyslug_slugs').' (polyslug_current_key)');
         } else {
-            DB::statement('DROP INDEX polyslug_slugs_current_unique');
+            DB::statement('DROP INDEX '.$this->wrapped($this->standing('polyslug_slugs_current_unique')));
             DB::statement(
-                'CREATE UNIQUE INDEX polyslug_slugs_current_unique '
+                'CREATE UNIQUE INDEX '.$this->wrapped($this->index('polyslug_slugs_current_unique')).' '
                 .'ON '.$this->table('polyslug_slugs').' (sluggable_type, locale, scope, lower(slug)) '
                 .'WHERE is_current AND deleted_at IS NULL'
             );
@@ -102,5 +103,41 @@ return new class extends Migration
     private function table(string $name): string
     {
         return Schema::getConnection()->getQueryGrammar()->wrapTable($name);
+    }
+
+    /**
+     * The name of an index of this package on the connection. PostgreSQL and SQLite allow an index
+     * name once per schema, so there the name carries the table prefix where the connection
+     * prefixes its indexes, as a name Laravel derives does: a second install under another prefix in
+     * the same schema builds its own index. MySQL allows an index name once per table, and the name
+     * stays as it is.
+     */
+    private function index(string $name): string
+    {
+        $connection = Schema::getConnection();
+
+        return in_array($connection->getDriverName(), ['pgsql', 'sqlite'], true) && (bool) $connection->getConfig('prefix_indexes')
+            ? $connection->getTablePrefix().$name
+            : $name;
+    }
+
+    /** An index name as raw SQL writes it, quoted by the connection's grammar. */
+    private function wrapped(string $name): string
+    {
+        return Schema::getConnection()->getQueryGrammar()->wrap($name);
+    }
+
+    /**
+     * The name an index stands under on the slug table: the one index() gives, or the one an install
+     * built before its name carried the prefix. Asked of the table itself, so the index of another
+     * install in the same schema is never the answer.
+     */
+    private function standing(string $name): string
+    {
+        $named = $this->index($name);
+
+        return $named !== $name && ! Schema::hasIndex(TableLookup::qualified('polyslug_slugs'), $named) && Schema::hasIndex(TableLookup::qualified('polyslug_slugs'), $name)
+            ? $name
+            : $named;
     }
 };

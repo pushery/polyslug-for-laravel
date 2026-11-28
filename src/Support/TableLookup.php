@@ -16,7 +16,8 @@ use Illuminate\Support\Facades\DB;
  * query reads, and no columns or indexes for it either. Every other driver already answers the
  * way its queries do.
  *
- * @internal
+ * Public, because the package's migrations ask it, and a published migration runs in the host's
+ * own namespace.
  */
 final class TableLookup
 {
