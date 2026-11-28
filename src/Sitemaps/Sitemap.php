@@ -10,6 +10,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Polyslug\Contracts\SitemapSource;
 use Polyslug\Contracts\SitemapStorage;
+use Polyslug\Contracts\StagesSitemapParts;
 use Polyslug\Exceptions\CouldNotBuildSitemap;
 use Polyslug\Polyslug;
 use Throwable;
@@ -23,7 +24,15 @@ use Throwable;
  * addresses and `max_bytes` bytes, and the addresses of one record always share a part. Since a part
  * is a range of keys rather than a position, a change to one record builds again the one part whose
  * range holds its key. A part that outgrows its ceilings, or that empties while others of its
- * source remain, has its source cut anew, and so does a source whose keys came out of byte order.
+ * source remain, has its source cut anew from where that part starts, the parts before it as they
+ * were. A source whose keys came out of byte order is cut anew whole.
+ *
+ * A cut fills each part to the share of its ceilings `fill` names. At 1 a part is cut full; below
+ * it each part keeps room for its records to grow, so a record that gains an address builds its
+ * part again in place.
+ *
+ * recut() cuts a source anew over several writes, a few parts in each, for a source too large to
+ * read in one: the new parts are staged beside the ones served, and the last write serves them.
  *
  * The root, the sources and the storage belong to one sitemap, so each tenant of an application can
  * have its own: its own host in the index, its own records, its own rows or files. Two writes of one
@@ -56,6 +65,8 @@ final readonly class Sitemap
 
     private int $maxBytes;
 
+    private float $fill;
+
     /**
      * @param  list<SitemapSource>  $sources  each with a name of its own
      * @param  string|null  $root  the URL the parts are served under, which the index names each part
@@ -63,6 +74,8 @@ final readonly class Sitemap
      *                             `https://shop.example/sitemaps/pages-1.xml`
      * @param  int|null  $maxUrls  addresses per part, `polyslug.sitemap.max_urls` where null
      * @param  int|null  $maxBytes  bytes per part, `polyslug.sitemap.max_bytes` where null
+     * @param  float|null  $fill  the share of each ceiling a cut fills a part to, above 0 and at
+     *                            most 1, `polyslug.sitemap.fill` where null
      */
     public function __construct(
         array $sources,
@@ -70,6 +83,7 @@ final readonly class Sitemap
         ?string $root = null,
         ?int $maxUrls = null,
         ?int $maxBytes = null,
+        ?float $fill = null,
     ) {
         $names = [];
 
@@ -87,11 +101,12 @@ final readonly class Sitemap
         $this->root = $root === null || $root === '' ? null : rtrim($root, '/');
         $this->maxUrls = $this->ceiling($maxUrls ?? $config->get('polyslug.sitemap.max_urls'), 50_000);
         $this->maxBytes = $this->ceiling($maxBytes ?? $config->get('polyslug.sitemap.max_bytes'), 50 * 1024 * 1024);
+        $this->fill = $this->share($fill ?? $config->get('polyslug.sitemap.fill'));
     }
 
     /**
      * Writes every source whole, and removes from the storage the parts of a source this sitemap no
-     * longer has.
+     * longer has. A cut of a source that runs over several writes is dropped.
      *
      * @return list<SitemapPart> the parts written, without their bodies
      */
@@ -104,10 +119,10 @@ final readonly class Sitemap
      * Builds again the parts of a source that hold the records with the keys given, each key in the
      * last part that starts at or before it.
      *
-     * The source is cut anew where it has no parts yet, where its keys came out of byte order, and
-     * where a part no longer fits its ceilings or emptied while others remain; a storage that keeps
-     * no record of its parts has the whole sitemap written. A key no record carries any more builds
-     * its part without that record, and a new key lands in the part whose range holds it.
+     * The source is cut anew where it has no parts yet or its keys came out of byte order, and from
+     * the part on that no longer fits its ceilings or emptied while others remain; a storage that
+     * keeps no record of its parts has the whole sitemap written. A key no record carries any more
+     * builds its part without that record, and a new key lands in the part whose range holds it.
      *
      * @param  list<string>  $keys
      * @return list<SitemapPart> the parts written, without their bodies
@@ -117,6 +132,43 @@ final readonly class Sitemap
         $subject = $this->source($source) ?? throw CouldNotBuildSitemap::unknownSource($source);
 
         return $this->write(fn (): array => $this->rebuildFrom($this->storage->parts(), $subject, $keys));
+    }
+
+    /**
+     * Cuts a source anew over several writes, each writing at most the parts given, and serves the
+     * new parts once the last write is in. Until then the index and every document are the parts
+     * served before.
+     *
+     * A call without a state starts the cut and drops a cut of the source left unfinished. Each call
+     * returns where the cut stands, the next call continues from it, and the call that reaches the
+     * end of the source serves the new parts in place of the old ones. A cut that is not continued
+     * leaves the parts served as they were. A source whose keys come out of byte order is cut anew
+     * whole in the call that finds them so, since no range of them can be read in steps.
+     *
+     * A rebuild while a cut runs builds again the new parts that hold its keys as well, and build()
+     * drops the cut.
+     *
+     * @param  int  $parts  how many parts each call writes at most, at least 1
+     * @param  SitemapRecut|null  $from  where the cut stands, as the previous call returned it, or
+     *                                   null to start it
+     *
+     * @throws CouldNotBuildSitemap where the storage cannot hold the new parts beside the ones it
+     *                              serves, or the cut $from stands in was dropped
+     */
+    public function recut(string $source, int $parts, ?SitemapRecut $from = null): SitemapRecut
+    {
+        $subject = $this->source($source) ?? throw CouldNotBuildSitemap::unknownSource($source);
+        $storage = $this->storage;
+
+        if (! $storage instanceof StagesSitemapParts) {
+            throw CouldNotBuildSitemap::cannotStage($storage);
+        }
+
+        if ($from instanceof SitemapRecut && $from->done()) {
+            return new SitemapRecut($from->source, null, $from->parts);
+        }
+
+        return $this->writeStep(fn (): SitemapRecut => $this->recutStep($subject, $storage, max(1, $parts), $from));
     }
 
     /**
@@ -214,6 +266,28 @@ final readonly class Sitemap
     }
 
     /**
+     * Runs one write of a cut over several: published when the step returns, dropped when it throws.
+     *
+     * @param  Closure(): SitemapRecut  $step
+     */
+    private function writeStep(Closure $step): SitemapRecut
+    {
+        $this->storage->begin();
+
+        try {
+            $state = $step();
+        } catch (Throwable $failure) {
+            $this->storage->rollBack();
+
+            throw $failure;
+        }
+
+        $this->storage->commit($this->entry(...));
+
+        return $state;
+    }
+
+    /**
      * @param  list<SitemapPart>|null  $stored
      * @return list<SitemapPart>
      */
@@ -231,6 +305,12 @@ final readonly class Sitemap
         $written = [];
 
         foreach ($this->sources as $source) {
+            // A build writes each source from its records as they are now, so a cut of it that runs
+            // over several writes would serve older parts in place of these: it is dropped.
+            if ($this->storage instanceof StagesSitemapParts) {
+                $this->storage->discard($source->name());
+            }
+
             array_push($written, ...$this->cut($source));
         }
 
@@ -248,6 +328,22 @@ final readonly class Sitemap
             return $this->buildFrom(null);
         }
 
+        $written = $this->rebuildServed($stored, $source, $keys);
+
+        if ($this->storage instanceof StagesSitemapParts) {
+            $this->rebuildStaged($this->storage, $source, $keys);
+        }
+
+        return $written;
+    }
+
+    /**
+     * @param  list<SitemapPart>  $stored
+     * @param  list<string>  $keys
+     * @return list<SitemapPart>
+     */
+    private function rebuildServed(array $stored, SitemapSource $source, array $keys): array
+    {
         $parts = $this->partsOf($source, $stored);
 
         if ($parts === [] || in_array(null, array_map(static fn (SitemapPart $part): ?string => $part->startsAt, $parts), true)) {
@@ -263,6 +359,12 @@ final readonly class Sitemap
                 return $this->cut($source);
             }
 
+            // From the part that outgrew or emptied on, every part is cut anew, the ones that hold
+            // the keys still ahead among them.
+            if ($refreshed === false) {
+                return [...$written, ...$this->cut($source, $parts[$position])];
+            }
+
             array_push($written, ...$refreshed);
         }
 
@@ -271,22 +373,27 @@ final readonly class Sitemap
 
     /**
      * Cuts a source into parts: its records in the byte order of their keys, a new part where the
-     * next record would take the current one past a ceiling, and the parts an earlier cut wrote
-     * beyond the last one removed.
+     * next record would take the current one past the share of a ceiling a cut fills, and the
+     * parts an earlier cut wrote beyond the last one removed.
+     *
+     * From one of its parts, the cut reads the records from where that part starts and writes the
+     * parts from its number on, so the parts before it stay as they were and the first one written
+     * keeps where that part started.
      *
      * @return list<SitemapPart> the parts written, without their bodies
      */
-    private function cut(SitemapSource $source): array
+    private function cut(SitemapSource $source, ?SitemapPart $from = null): array
     {
         $parts = [];
         $entries = [];
         $bytes = 0;
         $lastModified = null;
-        $startsAt = '';
+        $first = $from instanceof SitemapPart ? $from->number : 1;
+        $startsAt = $from->startsAt ?? '';
         $previous = null;
         $ordered = true;
 
-        foreach ($source->records() as $record) {
+        foreach ($source->records($startsAt) as $record) {
             $ordered = $ordered && ($previous === null || strcmp($record->key, $previous) > 0);
             $previous = $record->key;
             $own = self::entries($record);
@@ -299,8 +406,8 @@ final readonly class Sitemap
 
             // Checked before the record is added, and only when the part already holds something: a
             // record wider than a whole part is still written, alone in a part of its own.
-            if ($entries !== [] && ! $this->fits(count($entries) + count($own), $bytes + $size)) {
-                $parts[] = $this->put($source->name(), count($parts) + 1, $startsAt, $entries, $lastModified);
+            if ($entries !== [] && ! $this->fitsACut(count($entries) + count($own), $bytes + $size)) {
+                $parts[] = $this->put($source->name(), $first + count($parts), $startsAt, $entries, $lastModified);
                 $entries = [];
                 $bytes = 0;
                 $lastModified = null;
@@ -315,10 +422,10 @@ final readonly class Sitemap
         if ($entries !== []) {
             // Keys out of byte order leave the ranges unknown, and the last part says so: the next
             // rebuild of the source cuts it anew instead of trusting where each part starts.
-            $parts[] = $this->put($source->name(), count($parts) + 1, $ordered ? $startsAt : null, $entries, $lastModified);
+            $parts[] = $this->put($source->name(), $first + count($parts), $ordered ? $startsAt : null, $entries, $lastModified);
         }
 
-        $this->storage->trim($source->name(), count($parts));
+        $this->storage->trim($source->name(), $first - 1 + count($parts));
 
         return $parts;
     }
@@ -327,10 +434,14 @@ final readonly class Sitemap
      * Builds one part again from the records its range holds now.
      *
      * @param  list<SitemapPart>  $parts  of the source, in the order of their numbers
-     * @return list<SitemapPart>|null the part written, none where the only part of the source
-     *                                emptied and went, and null where the source is to be cut anew
+     * @param  StagesSitemapParts|null  $stage  the storage to stage the part in, for a part of a cut
+     *                                          that runs; null to write a part that is served
+     * @return list<SitemapPart>|false|null the part written, none where the only part of the
+     *                                      source emptied and went, false where the source is to
+     *                                      be cut anew from this part on, and null where its keys
+     *                                      came out of byte order and it is to be cut anew whole
      */
-    private function refresh(SitemapSource $source, array $parts, int $position): ?array
+    private function refresh(SitemapSource $source, array $parts, int $position, ?StagesSitemapParts $stage = null): array|false|null
     {
         $part = $parts[$position];
         $next = $parts[$position + 1] ?? null;
@@ -360,8 +471,16 @@ final readonly class Sitemap
         // the same part again.
         $outgrown = $records > 1 && ! $this->fits(count($entries), $bytes);
 
-        if (! $ordered || $outgrown || ($entries === [] && count($parts) > 1)) {
+        if (! $ordered) {
             return null;
+        }
+
+        if ($outgrown || ($entries === [] && count($parts) > 1)) {
+            return false;
+        }
+
+        if ($stage instanceof StagesSitemapParts) {
+            return $entries === [] ? false : [$this->staging($stage, $source->name(), $part->number, $part->startsAt ?? '', $entries, $lastModified)];
         }
 
         if ($entries === []) {
@@ -371,6 +490,158 @@ final readonly class Sitemap
         }
 
         return [$this->put($source->name(), $part->number, $part->startsAt, $entries, $lastModified)];
+    }
+
+    /**
+     * One write of a cut over several: stages at most $limit parts from where the cut stands, and
+     * serves them once the source ends.
+     */
+    private function recutStep(SitemapSource $source, StagesSitemapParts $storage, int $limit, ?SitemapRecut $from): SitemapRecut
+    {
+        $name = $source->name();
+
+        if ($from instanceof SitemapRecut) {
+            $cursor = $this->cursorOf($storage->staged($name));
+
+            if ($from->source !== $name || ! $cursor instanceof SitemapPart || $cursor->number !== $from->parts + 1 || $cursor->startsAt !== $from->next) {
+                throw CouldNotBuildSitemap::recutInterrupted($name);
+            }
+
+            $number = $cursor->number;
+            $startsAt = (string) $from->next;
+        } else {
+            $storage->discard($name);
+            $number = 1;
+            $startsAt = '';
+        }
+
+        // Ranges read in steps hold only where the keys come in byte order. Where the parts served
+        // already say they do not, or a step finds that they do not, the source is cut anew whole
+        // here, and nothing of the cut that ran is kept.
+        $served = $this->partsOf($source, $this->storage->parts() ?? []);
+        $step = in_array(null, array_map(static fn (SitemapPart $part): ?string => $part->startsAt, $served), true)
+            ? null
+            : $this->stageFrom($source, $storage, $number, $startsAt, $limit);
+
+        if ($step === null) {
+            $storage->discard($name);
+            $written = $this->cut($source);
+
+            return new SitemapRecut($name, null, count($written), $written);
+        }
+
+        [$written, $next] = $step;
+        $parts = $number - 1 + count($written);
+
+        if ($next === null) {
+            $storage->promote($name, $parts);
+
+            return new SitemapRecut($name, null, $parts, $written);
+        }
+
+        // Where the next part starts, staged as a part without addresses behind the last one written:
+        // a rebuild reads the last staged part up to it, and the next call can tell that the cut it
+        // continues is still the one staged.
+        $storage->stage(new SitemapPart($name, $parts + 1, $next, 0, null, self::urlset([])));
+
+        return new SitemapRecut($name, $next, $parts, $written);
+    }
+
+    /**
+     * Stages at most $limit parts of a source, the first numbered $number and starting at $startsAt.
+     *
+     * @return array{list<SitemapPart>, string|null}|null the parts staged and the key the next part
+     *                                                    starts at, null where the source ended;
+     *                                                    null where its keys came out of byte order
+     */
+    private function stageFrom(SitemapSource $source, StagesSitemapParts $storage, int $number, string $startsAt, int $limit): ?array
+    {
+        $written = [];
+        $entries = [];
+        $bytes = 0;
+        $lastModified = null;
+        $previous = null;
+
+        foreach ($source->records($startsAt) as $record) {
+            if ($previous !== null && strcmp($record->key, $previous) <= 0) {
+                return null;
+            }
+
+            $previous = $record->key;
+            $own = self::entries($record);
+
+            if ($own === []) {
+                continue;
+            }
+
+            $size = $this->bytes($own);
+
+            if ($entries !== [] && ! $this->fitsACut(count($entries) + count($own), $bytes + $size)) {
+                $written[] = $this->staging($storage, $source->name(), $number + count($written), $startsAt, $entries, $lastModified);
+
+                // The record that does not fit starts the next part, so the next call reads from it.
+                if (count($written) === $limit) {
+                    return [$written, $record->key];
+                }
+
+                $entries = [];
+                $bytes = 0;
+                $lastModified = null;
+                $startsAt = $record->key;
+            }
+
+            array_push($entries, ...$own);
+            $bytes += $size;
+            $lastModified = $this->later($lastModified, $record->lastModified);
+        }
+
+        if ($entries !== []) {
+            $written[] = $this->staging($storage, $source->name(), $number + count($written), $startsAt, $entries, $lastModified);
+        }
+
+        return [$written, null];
+    }
+
+    /**
+     * Builds again the staged parts of a running cut that hold the keys, so a record that changes on
+     * the way reaches the new parts as well as the ones served. A key past where the cut has come is
+     * read when it gets there. A staged part that no longer fits its ceilings, empties, or reads its
+     * keys out of byte order drops the running cut, whose next call then throws.
+     *
+     * @param  list<string>  $keys
+     */
+    private function rebuildStaged(StagesSitemapParts $storage, SitemapSource $source, array $keys): void
+    {
+        $staged = $storage->staged($source->name());
+        $cursor = $this->cursorOf($staged);
+
+        if (! $cursor instanceof SitemapPart) {
+            return;
+        }
+
+        $until = (string) $cursor->startsAt;
+        $behind = array_values(array_filter($keys, static fn (string $key): bool => strcmp($key, $until) < 0));
+
+        foreach ($this->holding($staged, $behind) as $position) {
+            if (! is_array($this->refresh($source, $staged, $position, $storage))) {
+                $storage->discard($source->name());
+
+                return;
+            }
+        }
+    }
+
+    /**
+     * The staged part that marks where the next part of a running cut starts: the last one staged,
+     * where it names no address, since every part a cut writes names one.
+     *
+     * @param  list<SitemapPart>  $staged
+     */
+    private function cursorOf(array $staged): ?SitemapPart
+    {
+        $last = $staged === [] ? null : $staged[count($staged) - 1];
+
+        return $last instanceof SitemapPart && $last->urls === 0 ? $last : null;
     }
 
     /**
@@ -488,6 +759,21 @@ final readonly class Sitemap
     }
 
     /**
+     * Whether a part a cut writes stays within the share of its ceilings `fill` gives it: the full
+     * ceilings at 1, and below that each rounded down, at least one address, so its records keep
+     * room to grow before a rebuild finds the part outgrown.
+     */
+    private function fitsACut(int $urls, int $bytes): bool
+    {
+        if ($this->fill >= 1.0) {
+            return $this->fits($urls, $bytes);
+        }
+
+        return $urls <= max(1, (int) floor($this->maxUrls * $this->fill))
+            && $bytes <= (int) floor(($this->maxBytes - self::ENVELOPE_RESERVE) * $this->fill);
+    }
+
+    /**
      * @param  list<string>  $entries
      */
     private function put(string $source, int $number, ?string $startsAt, array $entries, ?DateTimeInterface $lastModified): SitemapPart
@@ -495,6 +781,18 @@ final readonly class Sitemap
         $part = new SitemapPart($source, $number, $startsAt, count($entries), $lastModified?->format(DATE_ATOM), self::urlset($entries));
 
         $this->storage->put($part);
+
+        return $part->withoutBody();
+    }
+
+    /**
+     * @param  list<string>  $entries
+     */
+    private function staging(StagesSitemapParts $storage, string $source, int $number, string $startsAt, array $entries, ?DateTimeInterface $lastModified): SitemapPart
+    {
+        $part = new SitemapPart($source, $number, $startsAt, count($entries), $lastModified?->format(DATE_ATOM), self::urlset($entries));
+
+        $storage->stage($part);
 
         return $part->withoutBody();
     }
@@ -534,5 +832,17 @@ final readonly class Sitemap
     private function ceiling(mixed $value, int $default): int
     {
         return is_int($value) && $value > 0 ? $value : $default;
+    }
+
+    /**
+     * A configured share of the ceilings, or 1 where the value is no number above 0 and at most 1:
+     * a share of 0 would close a part before every record, and one above 1 would cut parts a
+     * rebuild finds outgrown at once.
+     *
+     * @param  mixed  $value  the configured share, which a host may write as any type
+     */
+    private function share(mixed $value): float
+    {
+        return (is_int($value) || is_float($value)) && $value > 0 && $value <= 1 ? (float) $value : 1.0;
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Polyslug\Support\TableLookup;
 
 /**
  * An index for the path every incoming URL takes.
@@ -64,7 +65,7 @@ return new class extends Migration
         // PostgreSQL + SQLite: the same functional index, deliberately without the partial
         // WHERE clause. Adding it back would reproduce the defect this migration exists for.
         DB::statement(
-            'CREATE INDEX polyslug_slugs_resolution ON '.$this->table('polyslug_slugs').' '
+            'CREATE INDEX '.$this->wrapped($this->index('polyslug_slugs_resolution')).' ON '.$this->table('polyslug_slugs').' '
             .'(sluggable_type, locale, scope, lower(slug))'
         );
     }
@@ -77,7 +78,7 @@ return new class extends Migration
             return;
         }
 
-        DB::statement('DROP INDEX polyslug_slugs_resolution');
+        DB::statement('DROP INDEX '.$this->wrapped($this->standing('polyslug_slugs_resolution')));
     }
 
     /**
@@ -88,5 +89,41 @@ return new class extends Migration
     private function table(string $name): string
     {
         return Schema::getConnection()->getQueryGrammar()->wrapTable($name);
+    }
+
+    /**
+     * The name of an index of this package on the connection. PostgreSQL and SQLite allow an index
+     * name once per schema, so there the name carries the table prefix where the connection
+     * prefixes its indexes, as a name Laravel derives does: a second install under another prefix in
+     * the same schema builds its own index. MySQL allows an index name once per table, and the name
+     * stays as it is.
+     */
+    private function index(string $name): string
+    {
+        $connection = Schema::getConnection();
+
+        return in_array($connection->getDriverName(), ['pgsql', 'sqlite'], true) && (bool) $connection->getConfig('prefix_indexes')
+            ? $connection->getTablePrefix().$name
+            : $name;
+    }
+
+    /** An index name as raw SQL writes it, quoted by the connection's grammar. */
+    private function wrapped(string $name): string
+    {
+        return Schema::getConnection()->getQueryGrammar()->wrap($name);
+    }
+
+    /**
+     * The name an index stands under on the slug table: the one index() gives, or the one an install
+     * built before its name carried the prefix. Asked of the table itself, so the index of another
+     * install in the same schema is never the answer.
+     */
+    private function standing(string $name): string
+    {
+        $named = $this->index($name);
+
+        return $named !== $name && ! Schema::hasIndex(TableLookup::qualified('polyslug_slugs'), $named) && Schema::hasIndex(TableLookup::qualified('polyslug_slugs'), $name)
+            ? $name
+            : $named;
     }
 };

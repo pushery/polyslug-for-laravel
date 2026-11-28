@@ -16,6 +16,7 @@ use Polyslug\Models\PolyslugShortLink;
 use Polyslug\Models\PolyslugSlug;
 use Polyslug\Support\ForgottenRecords;
 use Polyslug\Support\TokenStore;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
@@ -32,6 +33,7 @@ use Symfony\Component\Console\Formatter\OutputFormatter;
  * model's own connection. A model whose slugs live on a connection of its own and that holds no short
  * link or token is named with `--type`.
  */
+#[AsCommand(name: 'polyslug:forget-orphans')]
 final class ForgetOrphansCommand extends Command implements Isolatable
 {
     /** @var string */

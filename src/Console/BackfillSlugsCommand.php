@@ -12,8 +12,10 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Polyslug\Contracts\Sluggable;
 use Polyslug\Jobs\BackfillSlugsJob;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 
+#[AsCommand(name: 'polyslug:backfill')]
 final class BackfillSlugsCommand extends Command
 {
     /** @var string */

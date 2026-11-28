@@ -12,6 +12,7 @@ use Polyslug\Exceptions\CouldNotBuildSitemap;
 use Polyslug\Sitemaps\FileSitemapStorage;
 use Polyslug\Sitemaps\Sitemap;
 use Polyslug\Sitemaps\SluggableSource;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -22,6 +23,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * FileSitemapStorage: the parts it writes are the parts the same sitemap writes into any other
  * storage. Without --path the document goes to standard output in one piece, whatever its size.
  */
+#[AsCommand(name: 'polyslug:sitemap')]
 final class SitemapCommand extends Command
 {
     /** @var string */

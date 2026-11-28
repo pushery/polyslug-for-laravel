@@ -313,6 +313,12 @@ return [
     | console you use wants smaller files; raising them past the protocol produces a
     | document that engines reject.
     |
+    | 'fill' is the share of both ceilings a cut fills a part to, above 0 and at
+    | most 1. At 1.0 a part is cut full. Below it each part keeps room for its
+    | records to grow, so a record that gains an address or a locale builds its part
+    | again in place instead of cutting its source anew from there. 0.9 suits a
+    | sitemap whose records grow; any other value reads as 1.0.
+    |
     */
 
     'sitemap' => [
@@ -322,6 +328,7 @@ return [
 
         'max_urls' => 50_000,
         'max_bytes' => 50 * 1024 * 1024,
+        'fill' => 1.0,
     ],
 
     /*
@@ -421,17 +428,18 @@ return [
     | stricter, and needing to publish the config to reach it would freeze every other default in
     | here at the same time -- including a security default a later release corrects.
     |
-    | Read with EnvSwitch::read(), never cast. Laravel's env() converts only the strings `true` and
-    | `false`, so a cast would read `POLYSLUG_REQUIRE_SCOPE=off` as on. `true`, `1`, `yes` and `on`
-    | turn the switch on, whatever their case, and `false`, `0`, `no`, `off`, an empty value and
-    | any other spelling leave it off. The rule is a method of the package rather than an
-    | expression in this file, so a published copy of the file takes a fix to the rule with the
-    | next update of the package.
+    | Read with EnvSwitch::read(), never cast. Laravel's env() converts only a few spellings, so a
+    | cast would read `POLYSLUG_REQUIRE_SCOPE=off` as on. `true`, `1`, `yes` and `on` turn the
+    | switch on, whatever their case, and `false`, `0`, `no` and `off` leave it off. A missing or
+    | empty line, `empty`, `(empty)`, `null` and `(null)` leave it off as well. Any other spelling
+    | stops the boot with an error that names the variable. The rule is a method of the package
+    | rather than an expression in this file, so a published copy of the file takes a fix to the
+    | rule with the next update of the package.
     |
     */
 
     'resolution' => [
-        'require_scope' => EnvSwitch::read(env('POLYSLUG_REQUIRE_SCOPE'), false),
+        'require_scope' => EnvSwitch::read(env('POLYSLUG_REQUIRE_SCOPE'), false, 'POLYSLUG_REQUIRE_SCOPE'),
     ],
 
     /*

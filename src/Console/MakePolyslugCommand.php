@@ -7,7 +7,9 @@ namespace Polyslug\Console;
 use Illuminate\Console\GeneratorCommand;
 use Illuminate\Support\Str;
 use LogicException;
+use Symfony\Component\Console\Attribute\AsCommand;
 
+#[AsCommand(name: 'make:polyslug')]
 final class MakePolyslugCommand extends GeneratorCommand
 {
     /** @var string */

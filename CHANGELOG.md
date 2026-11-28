@@ -4,6 +4,34 @@ All notable changes to `pushery/polyslug-for-laravel` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and
 the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-11-28
+
+### ✨ Added
+
+- **A sitemap can cut its parts short of the ceilings, so its records have room to grow.** `polyslug.sitemap.fill`, or `fill` on the constructor of `Sitemap`, is the share of `max_urls` and `max_bytes` a cut fills each part to. A rebuild still measures a part against the ceilings themselves, so at `0.9` a record that gains an address or a locale builds its part again in place. The default is `1.0`, which cuts each part full, as before.
+- **A source can be cut anew over several writes, a few parts in each.** `Sitemap::recut($source, $parts, $from)` writes at most `$parts` parts of the new cut and returns a `SitemapRecut`, which the next call continues from, so each step can run in a job of its own. The call that reaches the end of the source serves the new parts in place of the old ones. Until then the index and every document serve the parts from before, and a cut that is not continued leaves them standing. A rebuild while a cut runs builds again the new parts that hold its keys as well, and `build()` drops a running cut. The new parts wait in a storage through the new `StagesSitemapParts`, which `DatabaseSitemapStorage` implements in the table it already has. `FileSitemapStorage` writes whole and refuses a cut in steps.
+
+### 🔧 Changed
+
+- **`POLYSLUG_REQUIRE_SCOPE` set to a spelling that says neither on nor off stops the boot.** A value such as `ture` left the scope optional. The boot and `config:cache` now stop with an `InvalidArgumentException` that names the variable, the value as written and every spelling for on and off. A missing or empty line and `empty`, `(empty)`, `null` and `(null)` leave it off, as before.
+
+  **Upgrade:** a host whose `.env` gives the variable another spelling corrects it, or deletes the line to keep the scope optional.
+
+### ⚡ Performance
+
+- **A start of the console builds none of the package's commands.** `polyslug:backfill`, `polyslug:doctor`, `polyslug:forget-orphans`, `polyslug:sitemap` and `make:polyslug` carry `#[AsCommand]` with their name, so Laravel keeps each in the map of its loader and builds it only when it runs. Before, every start of a host's console built all of them through the container, for each run of the schedule, each queue worker and each `artisan` call, whatever ran.
+- **A part that outgrows its ceilings, or empties while others remain, has its source cut anew only from where that part starts.** The parts before it are neither read nor written again. For the last part of a source, the rebuild reads only that part's records and appends a part behind it. A source without parts or with keys out of byte order is still cut anew whole.
+
+### 🐛 Fixed
+
+- **A second install under another table prefix in the same PostgreSQL schema builds its own indexes.** The migrations gave six indexes a name of their own, the same under every prefix, and PostgreSQL allows an index name once per schema, so the migrations of a second install failed at `relation already exists`. On PostgreSQL and SQLite those names now carry the table prefix where the connection sets `prefix_indexes`, as a name Laravel derives does, and a migration that drops one of them drops the name it finds on its own table. An install that already ran the migrations keeps its names, and `polyslug:doctor` reads both.
+
+### 📚 Documentation
+
+- **The requirements name the versions the package is tested on.** PHP 8.4.27, 8.5.x and 8.6.x, PostgreSQL 18.7 and MySQL 8.4.13, in the README and on the start page of the documentation.
+- **The Boost skill says how to publish the package's files.** It names the three publish tags, `polyslug-config`, `polyslug-migrations` and `polyslug`, and asks the application to call `PolyslugServiceProvider::ignoreMigrations()` before it publishes the migrations, since the package goes on loading them and the next `migrate` would otherwise create `polyslug_slugs`, `polyslug_tokens` and `polyslug_short_links` a second time.
+- **The model example of the Boost skill imports `Model`.** It named `Illuminate\Database\Eloquent\Model` without its `use` line, so an example copied as it stands stopped at an unknown class.
+
 ## [0.30.3] - 2026-11-24
 
 ### 📚 Documentation
@@ -1248,7 +1276,8 @@ leak-safe encoded IDs, self-healing canonical redirects, per-locale slugs + href
 - `Polyslug::isValidSlug()` now rejects slugs containing a trailing newline.
 - `RawIdEncoder` rejects non-canonical leading-zero tokens (e.g. `007`), so each record has a single canonical URL — consistent with `SqidsEncoder`.
 
-[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.3...HEAD
+[Unreleased]: https://github.com/pushery/polyslug-for-laravel/compare/v0.31.0...HEAD
+[0.31.0]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.3...v0.31.0
 [0.30.3]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.2...v0.30.3
 [0.30.2]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.1...v0.30.2
 [0.30.1]: https://github.com/pushery/polyslug-for-laravel/compare/v0.30.0...v0.30.1

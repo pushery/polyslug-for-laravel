@@ -27,9 +27,11 @@ use Polyslug\Support\StatusSetting;
 use Polyslug\Support\TableLookup;
 use Polyslug\Support\TokenAlphabet;
 use ReflectionMethod;
+use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 use Throwable;
 
+#[AsCommand(name: 'polyslug:doctor')]
 final class DoctorCommand extends Command
 {
     /** @var string */
@@ -760,7 +762,10 @@ final class DoctorCommand extends Command
 
         $ok = true;
 
-        foreach (['polyslug_slugs_current_unique', 'polyslug_slugs_one_current'] as $name) {
+        foreach (['polyslug_slugs_current_unique', 'polyslug_slugs_one_current'] as $index) {
+            $names = $this->indexNames($model->getConnection(), $index);
+            $name = array_find($names, static fn (string $candidate): bool => array_key_exists($candidate, $unique)) ?? $names[0];
+
             if (! array_key_exists($name, $unique)) {
                 $this->line(OutputFormatter::escape(sprintf('  ✗ unique index [%s] is missing — run the migrations.', $name)));
                 $ok = false;
@@ -775,5 +780,20 @@ final class DoctorCommand extends Command
         }
 
         return $ok;
+    }
+
+    /**
+     * The names an index of the migrations can stand under on a connection, the one a migration
+     * builds today first. PostgreSQL and SQLite allow an index name once per schema, so there the
+     * migrations put the table prefix in front where the connection prefixes its indexes. An install
+     * that ran them before that keeps the name without it.
+     *
+     * @return non-empty-list<string>
+     */
+    private function indexNames(Connection $connection, string $name): array
+    {
+        return in_array($connection->getDriverName(), ['pgsql', 'sqlite'], true) && (bool) $connection->getConfig('prefix_indexes') && $connection->getTablePrefix() !== ''
+            ? [$connection->getTablePrefix().$name, $name]
+            : [$name];
     }
 }
